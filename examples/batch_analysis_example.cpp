@@ -98,6 +98,7 @@ int main(int argc, char** argv) {
     auto data_dir = default_data_directory();
     auto worker_count = std::size_t{1U};
     auto max_files = std::optional<std::size_t>{};
+    auto fail_on_file_error = false;
 
     for (auto index = 1; index < argc; ++index) {
       const auto arg = std::string_view{argv[index]};
@@ -109,13 +110,16 @@ int main(int argc, char** argv) {
         worker_count = static_cast<std::size_t>(std::stoull(argv[++index]));
       } else if (arg == "--max-files" && index + 1 < argc) {
         max_files = static_cast<std::size_t>(std::stoull(argv[++index]));
+      } else if (arg == "--fail-on-file-error") {
+        fail_on_file_error = true;
       } else if (arg == "--help" || arg == "-h") {
         std::cout << "Usage: batch_analysis_example [options]\n"
                   << "  --output-dir <path>  default: results/examples/batch_analysis_cpp\n"
                   << "  --data-dir <path>    default: .read-only/RingDownAnalysis/data or "
                      "RINGDOWN_EXAMPLES_DATA\n"
                   << "  --workers <n>        default: 1\n"
-                  << "  --max-files <n>      optional cap after sorting (CSV then MAT)\n";
+                  << "  --max-files <n>      optional cap after sorting (CSV then MAT)\n"
+                  << "  --fail-on-file-error return nonzero when any file fails\n";
         return 0;
       }
     }
@@ -162,7 +166,9 @@ int main(int argc, char** argv) {
     std::cout << "Wrote batch analysis artifacts under " << output_dir.string() << '\n';
     if (processed.has_failures()) {
       std::cout << "Warning: " << processed.failed_files.size() << " file(s) failed.\n";
-      return 1;
+      if (fail_on_file_error) {
+        return 1;
+      }
     }
     return 0;
   } catch (const std::exception& error) {

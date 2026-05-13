@@ -68,10 +68,10 @@ Full notebook-style workflow on reference measurement data (defaults to `.read-o
    python examples/python/export_batch_reference.py
    ```
 
-2. C++ batch report (same default data directory resolution). Large directories can be slow; cap files for a quick check:
+2. C++ batch report (same default data directory resolution). Large directories can be slow; cap files for a quick check and use two workers when comparing the first three reference captures:
 
    ```bash
-   build/dev/examples/batch_analysis_example --max-files 3
+   build/dev/examples/batch_analysis_example --max-files 3 --workers 2
    ```
 
    Full directory:

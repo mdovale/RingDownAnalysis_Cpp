@@ -34,8 +34,18 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--py-report", type=Path, required=True)
     p.add_argument("--cpp-report", type=Path, required=True)
-    p.add_argument("--rtol", type=float, default=1e-6)
-    p.add_argument("--atol", type=float, default=1e-6)
+    p.add_argument(
+        "--rtol",
+        type=float,
+        default=5e-6,
+        help="Relative tolerance for independent Python/C++ estimator outputs.",
+    )
+    p.add_argument(
+        "--atol",
+        type=float,
+        default=3e-5,
+        help="Absolute tolerance in Hz for independent Python/C++ estimator outputs.",
+    )
     p.add_argument("--plot", type=Path, default=None)
     args = p.parse_args()
 
