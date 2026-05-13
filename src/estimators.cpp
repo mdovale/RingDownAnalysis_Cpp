@@ -523,8 +523,8 @@ EstimationResult DFTFrequencyEstimator::estimate_full(const std::vector<double>&
 }
 
 NLSFrequencyEstimator::NLSFrequencyEstimator(std::optional<double> known_tau) : known_tau_{known_tau} {
-  if (known_tau_.has_value() && *known_tau_ <= 0.0) {
-    throw std::invalid_argument{"tau_known must be positive"};
+  if (known_tau_.has_value() && (!std::isfinite(*known_tau_) || *known_tau_ <= 0.0)) {
+    throw std::invalid_argument{"tau_known must be positive and finite"};
   }
 }
 

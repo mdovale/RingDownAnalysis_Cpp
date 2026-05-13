@@ -1,6 +1,7 @@
 #include <ringdown/monte_carlo.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <future>
 #include <iomanip>
@@ -42,20 +43,30 @@ struct TrialResult {
   std::optional<double> dft_q_error;
 };
 
+[[nodiscard]] std::string json_number(double value) {
+  if (!std::isfinite(value)) {
+    return "null";
+  }
+  auto out = std::ostringstream{};
+  out << std::setprecision(17) << value;
+  return out.str();
+}
+
 void write_vector(std::ostringstream& out, const std::vector<double>& values) {
   out << '[';
   for (auto index = std::size_t{0}; index < values.size(); ++index) {
     if (index != 0U) {
       out << ", ";
     }
-    out << values[index];
+    out << json_number(values[index]);
   }
   out << ']';
 }
 
 void write_stats(std::ostringstream& out, const ErrorStatistics& stats) {
-  out << "{\"mean\": " << stats.mean << ", \"std\": " << stats.standard_deviation
-      << ", \"rmse\": " << stats.rmse << '}';
+  out << "{\"mean\": " << json_number(stats.mean)
+      << ", \"std\": " << json_number(stats.standard_deviation)
+      << ", \"rmse\": " << json_number(stats.rmse) << '}';
 }
 
 } // namespace
@@ -108,20 +119,29 @@ MonteCarloResult MonteCarloAnalyzer::run(const MonteCarloOptions& options) const
     return trial;
   };
 
-  auto trials = std::vector<TrialResult>{};
-  trials.reserve(options.trial_count);
+  auto trials = std::vector<TrialResult>(options.trial_count);
   if (options.worker_count <= 1U || options.trial_count < 2U) {
     for (auto trial = std::size_t{0}; trial < options.trial_count; ++trial) {
-      trials.push_back(run_trial(trial));
+      trials[trial] = run_trial(trial);
     }
   } else {
-    auto futures = std::vector<std::future<TrialResult>>{};
-    futures.reserve(options.trial_count);
-    for (auto trial = std::size_t{0}; trial < options.trial_count; ++trial) {
-      futures.push_back(std::async(std::launch::async, run_trial, trial));
+    const auto bounded_worker_count = std::min(options.worker_count, options.trial_count);
+    auto next_index = std::atomic<std::size_t>{0U};
+    auto workers = std::vector<std::future<void>>{};
+    workers.reserve(bounded_worker_count);
+    for (auto worker = std::size_t{0}; worker < bounded_worker_count; ++worker) {
+      workers.push_back(std::async(std::launch::async, [&] {
+        while (true) {
+          const auto trial = next_index.fetch_add(1U);
+          if (trial >= options.trial_count) {
+            return;
+          }
+          trials[trial] = run_trial(trial);
+        }
+      }));
     }
-    for (auto& future : futures) {
-      trials.push_back(future.get());
+    for (auto& worker : workers) {
+      worker.get();
     }
   }
 
@@ -151,14 +171,14 @@ std::string to_json(const MonteCarloResult& result) {
   auto out = std::ostringstream{};
   out << std::setprecision(17);
   out << "{\n";
-  out << "  \"f0\": " << result.frequency_hz << ",\n";
-  out << "  \"Q\": " << result.quality_factor << ",\n";
-  out << "  \"tau\": " << result.tau << ",\n";
-  out << "  \"fs\": " << result.sample_rate_hz << ",\n";
+  out << "  \"f0\": " << json_number(result.frequency_hz) << ",\n";
+  out << "  \"Q\": " << json_number(result.quality_factor) << ",\n";
+  out << "  \"tau\": " << json_number(result.tau) << ",\n";
+  out << "  \"fs\": " << json_number(result.sample_rate_hz) << ",\n";
   out << "  \"N\": " << result.sample_count << ",\n";
-  out << "  \"snr_db\": " << result.snr_db << ",\n";
-  out << "  \"crlb_std\": " << result.crlb_std_f << ",\n";
-  out << "  \"crlb_std_q\": " << result.crlb_std_q << ",\n";
+  out << "  \"snr_db\": " << json_number(result.snr_db) << ",\n";
+  out << "  \"crlb_std\": " << json_number(result.crlb_std_f) << ",\n";
+  out << "  \"crlb_std_q\": " << json_number(result.crlb_std_q) << ",\n";
   out << "  \"errors_nls\": ";
   write_vector(out, result.nls_frequency_errors);
   out << ",\n";

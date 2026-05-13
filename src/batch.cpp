@@ -1,6 +1,7 @@
 #include <ringdown/batch.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <future>
 #include <iomanip>
@@ -40,18 +41,47 @@ namespace {
   return value.value_or(std::numeric_limits<double>::quiet_NaN());
 }
 
+[[nodiscard]] std::string json_number(double value) {
+  if (!std::isfinite(value)) {
+    return "null";
+  }
+  auto out = std::ostringstream{};
+  out << std::setprecision(17) << value;
+  return out.str();
+}
+
+[[nodiscard]] std::string optional_json_number(std::optional<double> value) {
+  return value.has_value() ? json_number(*value) : "null";
+}
+
 [[nodiscard]] std::string json_string(const std::string& value) {
   auto out = std::ostringstream{};
   out << '"';
   for (const auto ch : value) {
     if (ch == '"' || ch == '\\') {
       out << '\\';
+      out << ch;
+    } else if (ch == '\n') {
+      out << "\\n";
+    } else if (ch == '\r') {
+      out << "\\r";
+    } else if (ch == '\t') {
+      out << "\\t";
+    } else if (static_cast<unsigned char>(ch) < 0x20U) {
+      out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+          << static_cast<int>(static_cast<unsigned char>(ch)) << std::dec << std::setfill(' ');
+    } else {
+      out << ch;
     }
-    out << ch;
   }
   out << '"';
   return out.str();
 }
+
+struct ProcessingSlot {
+  std::optional<AnalyzerResult> result;
+  std::string error_message;
+};
 
 } // namespace
 
@@ -76,18 +106,36 @@ ProcessResult BatchRingDownAnalyzer::process_files(const std::vector<std::string
     return ProcessResult{results_, failed};
   }
 
-  auto futures = std::vector<std::future<AnalyzerResult>>{};
-  futures.reserve(filepaths.size());
-  for (const auto& filepath : filepaths) {
-    futures.push_back(
-        std::async(std::launch::async, [this, filepath] { return analyzer_.analyze_file(filepath); }));
+  const auto bounded_worker_count = std::min(worker_count, filepaths.size());
+  auto slots = std::vector<ProcessingSlot>(filepaths.size());
+  auto next_index = std::atomic<std::size_t>{0U};
+  auto workers = std::vector<std::future<void>>{};
+  workers.reserve(bounded_worker_count);
+
+  for (auto worker = std::size_t{0}; worker < bounded_worker_count; ++worker) {
+    workers.push_back(std::async(std::launch::async, [this, &filepaths, &slots, &next_index] {
+      while (true) {
+        const auto index = next_index.fetch_add(1U);
+        if (index >= filepaths.size()) {
+          return;
+        }
+        try {
+          slots[index].result = analyzer_.analyze_file(filepaths[index]);
+        } catch (const std::exception& error) {
+          slots[index].error_message = error.what();
+        }
+      }
+    }));
+  }
+  for (auto& worker : workers) {
+    worker.get();
   }
 
-  for (auto index = std::size_t{0}; index < futures.size(); ++index) {
-    try {
-      results_.push_back(futures[index].get());
-    } catch (const std::exception& error) {
-      failed.push_back(FailedFile{filepaths[index], error.what()});
+  for (auto index = std::size_t{0}; index < slots.size(); ++index) {
+    if (slots[index].result.has_value()) {
+      results_.push_back(std::move(*slots[index].result));
+    } else {
+      failed.push_back(FailedFile{filepaths[index], slots[index].error_message});
     }
   }
   return ProcessResult{results_, failed};
@@ -209,11 +257,12 @@ std::string to_json(const ProcessResult& result) {
   for (auto index = std::size_t{0}; index < result.results.size(); ++index) {
     const auto& item = result.results[index];
     out << "    {\"filename\": " << json_string(item.filename) << ", \"type\": "
-        << json_string(item.file_type) << ", \"f_nls\": " << item.nls.frequency_hz
-        << ", \"f_dft\": " << item.dft.frequency_hz << ", \"tau_est\": " << item.tau_estimate
-        << ", \"Q_nls\": " << optional_or_nan(item.nls.quality_factor)
-        << ", \"Q_dft\": " << optional_or_nan(item.dft.quality_factor)
-        << ", \"plugin_crlb_std_f\": " << item.plugin_crlb_std_f << "}";
+        << json_string(item.file_type) << ", \"f_nls\": " << json_number(item.nls.frequency_hz)
+        << ", \"f_dft\": " << json_number(item.dft.frequency_hz)
+        << ", \"tau_est\": " << json_number(item.tau_estimate)
+        << ", \"Q_nls\": " << optional_json_number(item.nls.quality_factor)
+        << ", \"Q_dft\": " << optional_json_number(item.dft.quality_factor)
+        << ", \"plugin_crlb_std_f\": " << json_number(item.plugin_crlb_std_f) << "}";
     if (index + 1U != result.results.size()) {
       out << ',';
     }

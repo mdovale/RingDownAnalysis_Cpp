@@ -7,6 +7,16 @@
 
 namespace ringdown {
 
+namespace {
+
+void validate_positive_finite(double value, const char* message) {
+  if (!std::isfinite(value) || value <= 0.0) {
+    throw std::invalid_argument{message};
+  }
+}
+
+} // namespace
+
 double SignalParameters::tau() const { return quality_factor / (std::numbers::pi * frequency_hz); }
 
 double SignalParameters::sigma() const {
@@ -15,20 +25,15 @@ double SignalParameters::sigma() const {
 }
 
 void SignalParameters::validate() const {
-  if (frequency_hz <= 0.0) {
-    throw std::invalid_argument{"f0 must be positive"};
-  }
-  if (sample_rate_hz <= 0.0) {
-    throw std::invalid_argument{"fs must be positive"};
-  }
+  validate_positive_finite(frequency_hz, "f0 must be positive and finite");
+  validate_positive_finite(sample_rate_hz, "fs must be positive and finite");
   if (sample_count == 0U) {
     throw std::invalid_argument{"N must be positive"};
   }
-  if (amplitude <= 0.0) {
-    throw std::invalid_argument{"A0 must be positive"};
-  }
-  if (quality_factor <= 0.0) {
-    throw std::invalid_argument{"Q must be positive"};
+  validate_positive_finite(amplitude, "A0 must be positive and finite");
+  validate_positive_finite(quality_factor, "Q must be positive and finite");
+  if (!std::isfinite(snr_db)) {
+    throw std::invalid_argument{"snr_db must be finite"};
   }
 }
 

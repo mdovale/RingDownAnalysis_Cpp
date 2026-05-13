@@ -420,8 +420,44 @@ void remove_mean(std::vector<double>& values) {
   if (!value.has_value()) {
     return "null";
   }
+  if (!std::isfinite(*value)) {
+    return "null";
+  }
   auto out = std::ostringstream{};
   out << std::setprecision(17) << *value;
+  return out.str();
+}
+
+[[nodiscard]] std::string json_number(double value) {
+  if (!std::isfinite(value)) {
+    return "null";
+  }
+  auto out = std::ostringstream{};
+  out << std::setprecision(17) << value;
+  return out.str();
+}
+
+[[nodiscard]] std::string json_string(const std::string& value) {
+  auto out = std::ostringstream{};
+  out << '"';
+  for (const auto ch : value) {
+    if (ch == '"' || ch == '\\') {
+      out << '\\';
+      out << ch;
+    } else if (ch == '\n') {
+      out << "\\n";
+    } else if (ch == '\r') {
+      out << "\\r";
+    } else if (ch == '\t') {
+      out << "\\t";
+    } else if (static_cast<unsigned char>(ch) < 0x20U) {
+      out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+          << static_cast<int>(static_cast<unsigned char>(ch)) << std::dec << std::setfill(' ');
+    } else {
+      out << ch;
+    }
+  }
+  out << '"';
   return out.str();
 }
 
@@ -709,26 +745,26 @@ std::string to_json(const AnalyzerResult& result) {
   auto out = std::ostringstream{};
   out << std::setprecision(17);
   out << "{\n";
-  out << "  \"filename\": \"" << result.filename << "\",\n";
-  out << "  \"type\": \"" << result.file_type << "\",\n";
-  out << "  \"fs\": " << result.sample_rate_hz << ",\n";
+  out << "  \"filename\": " << json_string(result.filename) << ",\n";
+  out << "  \"type\": " << json_string(result.file_type) << ",\n";
+  out << "  \"fs\": " << json_number(result.sample_rate_hz) << ",\n";
   out << "  \"N\": " << result.sample_count << ",\n";
   out << "  \"N_crop\": " << result.cropped_sample_count << ",\n";
-  out << "  \"T\": " << result.observation_time << ",\n";
-  out << "  \"T_crop\": " << result.cropped_observation_time << ",\n";
-  out << "  \"tau_seed\": " << result.tau_seed << ",\n";
-  out << "  \"tau_est\": " << result.tau_estimate << ",\n";
-  out << "  \"tau_model\": " << result.tau_model << ",\n";
-  out << "  \"f_nls\": " << result.nls.frequency_hz << ",\n";
-  out << "  \"f_dft\": " << result.dft.frequency_hz << ",\n";
+  out << "  \"T\": " << json_number(result.observation_time) << ",\n";
+  out << "  \"T_crop\": " << json_number(result.cropped_observation_time) << ",\n";
+  out << "  \"tau_seed\": " << json_number(result.tau_seed) << ",\n";
+  out << "  \"tau_est\": " << json_number(result.tau_estimate) << ",\n";
+  out << "  \"tau_model\": " << json_number(result.tau_model) << ",\n";
+  out << "  \"f_nls\": " << json_number(result.nls.frequency_hz) << ",\n";
+  out << "  \"f_dft\": " << json_number(result.dft.frequency_hz) << ",\n";
   out << "  \"tau_nls\": " << optional_number(result.nls.tau) << ",\n";
   out << "  \"tau_dft\": " << optional_number(result.dft.tau) << ",\n";
   out << "  \"Q_nls\": " << optional_number(result.nls.quality_factor) << ",\n";
   out << "  \"Q_dft\": " << optional_number(result.dft.quality_factor) << ",\n";
-  out << "  \"A0_est\": " << result.noise.amplitude << ",\n";
-  out << "  \"sigma_est\": " << result.noise.sigma << ",\n";
-  out << "  \"plugin_crlb_var_f\": " << result.plugin_crlb_variance_f << ",\n";
-  out << "  \"plugin_crlb_std_f\": " << result.plugin_crlb_std_f << ",\n";
+  out << "  \"A0_est\": " << json_number(result.noise.amplitude) << ",\n";
+  out << "  \"sigma_est\": " << json_number(result.noise.sigma) << ",\n";
+  out << "  \"plugin_crlb_var_f\": " << json_number(result.plugin_crlb_variance_f) << ",\n";
+  out << "  \"plugin_crlb_std_f\": " << json_number(result.plugin_crlb_std_f) << ",\n";
   out << "  \"uncertainty_valid\": " << (result.uncertainty_valid ? "true" : "false") << "\n";
   out << "}\n";
   return out.str();

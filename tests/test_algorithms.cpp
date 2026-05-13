@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -86,6 +87,20 @@ void require_near(double actual, double expected, double tolerance, std::string_
   }
 }
 
+template <typename Function>
+void require_invalid_argument(Function&& function, std::string_view message) {
+  try {
+    function();
+  } catch (const std::invalid_argument&) {
+    return;
+  } catch (const std::exception& error) {
+    auto out = std::ostringstream{};
+    out << message << ": expected invalid_argument, got " << error.what();
+    throw ringdown::test::AssertionFailure{out.str()};
+  }
+  throw ringdown::test::AssertionFailure{std::string{message}};
+}
+
 } // namespace
 
 RINGDOWN_TEST(crlb_matches_python_fixture) {
@@ -112,6 +127,22 @@ RINGDOWN_TEST(crlb_matches_python_fixture) {
   require_near(variance_f, extract_number(text, "variance_f", crlb), 1.0e-22, "CRLB frequency variance");
   require_near(std_f, extract_number(text, "std_f", crlb), 1.0e-16, "CRLB frequency std");
   require_near(variance_q, extract_number(text, "variance_q", crlb), 1.0e-5, "CRLB Q variance");
+}
+
+RINGDOWN_TEST(scientific_inputs_reject_nonfinite_values) {
+  const auto nan = std::numeric_limits<double>::quiet_NaN();
+  const auto inf = std::numeric_limits<double>::infinity();
+
+  auto signal = ringdown::SignalParameters{};
+  signal.frequency_hz = nan;
+  require_invalid_argument([&] { ringdown::RingDownSignal{signal}; }, "NaN signal frequency must be rejected");
+
+  require_invalid_argument(
+      [&] { (void)ringdown::CRLBCalculator::variance(inf, 0.1, 100.0, 128U, 10.0); },
+      "infinite CRLB amplitude must be rejected");
+  require_invalid_argument(
+      [&] { (void)ringdown::NLSFrequencyEstimator{nan}; },
+      "NaN known tau must be rejected");
 }
 
 RINGDOWN_TEST(deterministic_signal_matches_python_fixture) {
@@ -225,6 +256,15 @@ RINGDOWN_TEST(batch_workflow_matches_pipeline_fixture) {
   ringdown::test::require(uncertainty.frequency_differences.size() ==
                               static_cast<std::size_t>(extract_number(text, "frequency_diff_count", batch)),
                           "batch uncertainty comparison count");
+
+  auto parallel_analyzer = ringdown::BatchRingDownAnalyzer{};
+  const auto parallel_processed =
+      parallel_analyzer.process_files({reference_fixture_path("moku_small.csv").string(),
+                                       reference_fixture_path("moku_small.mat").string()},
+                                      2U);
+  ringdown::test::require(parallel_processed.results.size() == processed.results.size(),
+                          "parallel batch success count");
+  ringdown::test::require(parallel_processed.failed_files.empty(), "parallel batch should not fail fixtures");
 }
 
 RINGDOWN_TEST(monte_carlo_runs_deterministically) {
@@ -237,12 +277,16 @@ RINGDOWN_TEST(monte_carlo_runs_deterministically) {
   options.seed = 7U;
   const auto first = ringdown::MonteCarloAnalyzer{}.run(options);
   const auto second = ringdown::MonteCarloAnalyzer{}.run(options);
+  options.worker_count = 2U;
+  const auto parallel = ringdown::MonteCarloAnalyzer{}.run(options);
   ringdown::test::require(first.nls_frequency_errors.size() == second.nls_frequency_errors.size(),
                           "NLS trial counts should match");
   ringdown::test::require(first.dft_frequency_errors.size() == second.dft_frequency_errors.size(),
                           "DFT trial counts should match");
   if (!first.dft_frequency_errors.empty()) {
     require_near(first.dft_frequency_errors.front(), second.dft_frequency_errors.front(), 0.0, "DFT seed");
+    require_near(first.dft_frequency_errors.front(), parallel.dft_frequency_errors.front(), 0.0,
+                 "parallel DFT seed");
   }
 
   auto fixture_options = ringdown::MonteCarloOptions{};
@@ -253,4 +297,43 @@ RINGDOWN_TEST(monte_carlo_runs_deterministically) {
   ringdown::test::require(fixture_result.nls_frequency_errors.size() == python_nls_errors.size(),
                           "Monte Carlo fixture trial count");
   ringdown::test::require(!ringdown::to_json(fixture_result).empty(), "Monte Carlo JSON export");
+}
+
+RINGDOWN_TEST(json_exports_escape_strings_and_null_nonfinite_values) {
+  const auto nan = std::numeric_limits<double>::quiet_NaN();
+  const auto inf = std::numeric_limits<double>::infinity();
+
+  auto analysis = ringdown::AnalyzerResult{};
+  analysis.filename = "quoted\"file\\name\n.csv";
+  analysis.file_type = "C\\SV";
+  analysis.sample_rate_hz = inf;
+  analysis.nls.tau = nan;
+  const auto analysis_json = ringdown::to_json(analysis);
+  ringdown::test::require(analysis_json.find("\"filename\": \"quoted\\\"file\\\\name\\n.csv\"") !=
+                              std::string::npos,
+                          "analysis JSON should escape filenames");
+  ringdown::test::require(analysis_json.find("\"fs\": null") != std::string::npos,
+                          "analysis JSON should write null for non-finite numbers");
+  ringdown::test::require(analysis_json.find("\"tau_nls\": null") != std::string::npos,
+                          "analysis JSON should write null for non-finite optionals");
+
+  auto batch_item = ringdown::AnalyzerResult{};
+  batch_item.filename = "batch\"file.csv";
+  batch_item.plugin_crlb_std_f = inf;
+  const auto batch_json = ringdown::to_json(ringdown::ProcessResult{{batch_item}, {}});
+  ringdown::test::require(batch_json.find("\"filename\": \"batch\\\"file.csv\"") != std::string::npos,
+                          "batch JSON should escape filenames");
+  ringdown::test::require(batch_json.find("\"Q_nls\": null") != std::string::npos,
+                          "batch JSON should write null for missing optionals");
+  ringdown::test::require(batch_json.find("\"plugin_crlb_std_f\": null") != std::string::npos,
+                          "batch JSON should write null for non-finite numbers");
+
+  auto monte_carlo = ringdown::MonteCarloResult{};
+  monte_carlo.nls_frequency_errors = {nan, inf};
+  monte_carlo.nls_statistics = ringdown::ErrorStatistics{nan, inf, 0.0};
+  const auto monte_carlo_json = ringdown::to_json(monte_carlo);
+  ringdown::test::require(monte_carlo_json.find("[null, null]") != std::string::npos,
+                          "Monte Carlo JSON should null non-finite arrays");
+  ringdown::test::require(monte_carlo_json.find("\"mean\": null") != std::string::npos,
+                          "Monte Carlo JSON should null non-finite stats");
 }

@@ -10,7 +10,7 @@ namespace ringdown {
 namespace {
 
 void validate_positive(double value, const char* message) {
-  if (value <= 0.0) {
+  if (!std::isfinite(value) || value <= 0.0) {
     throw std::invalid_argument{message};
   }
 }
