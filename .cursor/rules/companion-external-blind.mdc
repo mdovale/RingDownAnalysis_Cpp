@@ -1,0 +1,72 @@
+---
+description: Keep externally-facing docs (docs/companion/, docs/notes/) blind to internal development workflow
+alwaysApply: true
+---
+
+# External-facing docs — publication blind
+
+These paths are treated as **externally publishable** or shareable with
+collaborators who have no visibility into how this repository is maintained:
+
+- **`docs/companion/`** — the LaTeX GravNav Companion (PDF-oriented reference for
+  `gravnav`).
+- **`docs/notes/`** — theory and project notes (e.g. NavGrav, time-domain
+  material) that may be exported or cited outside the repo.
+
+They **must not leak** internal development-workflow details.
+
+## What MUST NOT appear under `docs/companion/` or `docs/notes/`
+
+In any file in those trees (LaTeX, Markdown, figures captions, Makefile comments
+under `docs/companion/`, etc.) do **not** mention:
+
+- **Cursor** as an editor, agent platform, or product name.
+- Cursor-specific artifacts:
+  - `.cursor/` and anything under it (rules, commands, hooks).
+  - `.mdc` rule files by name (e.g. `gravnav-companion-doc.mdc`).
+  - `.cursor/commands/*.md` slash commands (e.g. **Sync gravnav companion**,
+    **Skip gravnav companion sync**, **Commit step**, **Sync notation**).
+  - `.cursor/hooks.json` or `.cursor/hooks/*` scripts and the `sessionStart`
+    / `stop` hook mechanism.
+- The words "agent", "agents", "subagent", "assistant", or any phrasing that
+  describes AI-driven or tool-driven workflow (e.g. "agents use X command",
+  "when the agent finishes").
+- Handoff documents (`docs/handoffs/` and `docs/handoffs/*.md`) and the
+  internal practice of writing them.
+- `AGENTS.md`, internal workflow rules, or the commit-cadence / trunk-flow
+  policy documents.
+- Any other "how we work internally" prose that would be meaningless or
+  confusing to an external reader.
+
+Code and path references should point at **public** artifacts: the `gravnav/`
+source tree, notebooks under `notebooks/`, `docs/NOTATION.md`, and tracked
+references in `docs/references/`. Cross-links between `docs/notes/` and
+`docs/companion/` are fine when they stay on physics, notation, and code.
+
+## What MAY appear
+
+- Public Python API (modules, classes, functions) under `gravnav/`.
+- Physics, math, and notation aligned with `docs/NOTATION.md` / HM06.
+- Build instructions using standard tools (`latexmk`, `make`) where relevant
+  (Companion README).
+- Internal repository paths only when they are **public-user-facing**
+  (e.g. `gravnav/__init__.py`, `notebooks/0.2_GGT-Marussi-Fischer-maps.ipynb`,
+  `docs/NOTATION.md`).
+
+## When editing these trees
+
+Before saving any change under `docs/companion/` or `docs/notes/`, re-read the
+diff and remove anything from the list above. If a development-workflow pointer
+is genuinely needed for maintainers, put it in `AGENTS.md` or `docs/handoffs/`
+— **never** inside `docs/companion/` or `docs/notes/`.
+
+## Quick check
+
+A reasonable grep before committing changes under either tree:
+
+```bash
+rg -n -i '(cursor|agent|\.cursor/|\.mdc|handoff|slash command|sessionStart|AGENTS\.md|sync gravnav|skip gravnav)' docs/companion/ docs/notes/
+```
+
+Any hit that is not a false positive (e.g. `\arraybackslash` in LaTeX) must be
+reworded or removed before the change is committed.

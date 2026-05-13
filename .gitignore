@@ -1,0 +1,33 @@
+.DS_Store
+
+# Local reference checkout used for porting context; do not vendor it here.
+.read-only/
+
+# CMake and build products.
+build*/
+cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+
+# Native binaries and coverage/profiling output.
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.profraw
+*.profdata
+coverage/
+
+# Python helper environments and caches.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated analysis outputs.
+results/
+artifacts/

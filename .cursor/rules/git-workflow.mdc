@@ -1,0 +1,47 @@
+---
+description: Single-agent trunk workflow — linear history, small frequent commits during handoffs
+alwaysApply: true
+---
+
+# Git workflow (single agent, trunk)
+
+Assume **one agent session at a time** on this repo. No parallel agents or
+long-lived topic branches unless the user explicitly asks for them.
+
+## Trunk and linear history
+
+- Work on the default branch (e.g. `main`). Do not create feature branches for
+  routine handoff implementation.
+- Before continuing after the remote may have moved, use `git pull --rebase`
+  (not `git pull` merge) so history stays a straight line.
+- Avoid merge commits for integrating your own work. Do not merge unrelated
+  local branches into `main` without user direction.
+- Do **not** `git push --force` to the shared default branch unless the user
+  explicitly requests it.
+
+## Commit cadence during handoffs
+
+When implementing work described in `docs/handoffs/*.md`, or when the user
+asks you to implement a multi-step change and keep the repo updated:
+
+1. **Commit often** — after each coherent, working increment (one logical
+   concern per commit), not only at the end of the session.
+2. **Keep commits small** — prefer several focused commits over one large
+   commit that mixes scaffolding, unrelated refactors, and behavior changes.
+3. **Stage narrowly** — use explicit paths or `git add -p` so unrelated edits
+   do not ride along. Do not commit generated noise (build artifacts, editor
+   junk) unless the user asked to track them.
+4. **Message format** — follow `.cursor/rules/commit-message.mdc`
+   (Conventional Commits, subject/body line width). Optionally mention the
+   handoff file name in the body for traceability.
+
+If the user clearly says **not** to commit (e.g. exploration only), respect
+that and only inspect with `git status` / `git diff`.
+
+## Session hygiene
+
+- End a work block with a **clean** working tree when possible: everything
+  committed or explicitly left unstaged for a reason the user knows.
+- If you must stop mid-change, prefer a **WIP commit** with a honest subject
+  (e.g. `chore(gravnav): wip scaffold package layout`) over large uncommitted
+  diffs, unless the user forbids WIP commits.

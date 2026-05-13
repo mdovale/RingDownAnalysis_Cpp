@@ -1,0 +1,40 @@
+---
+description: Avoid hacky workarounds; prefer hand-off writeups when proper fixes are unclear
+alwaysApply: true
+---
+
+# No Hacky Workarounds
+
+Do not ship brittle framework-fighting patches as the primary fix.
+
+This codebase already uses targeted AppKit wrappers and subclasses where they are the clean architectural solution. That is acceptable when the approach is:
+
+- narrow in scope
+- aligned with existing architecture
+- based on stable system behavior rather than visual cover-ups
+- clearly explained in code/comments/docs when non-obvious
+
+Stop when the only path is layering ad-hoc workarounds such as:
+
+- drawing over internal system UI to hide artifacts
+- repeatedly reordering/re-adding views to stay above framework-managed subviews
+- timing-based retries as the main mechanism
+- hit-testing or responder hacks that merely mask an underlying ownership problem
+
+## Instead: Hand-Off Writeup
+
+Create a hand-off document for another agent or session that can:
+
+1. Research the issue more thoroughly (framework docs, forums...)
+2. Consider alternative approaches (different APIs, upstream fixes...)
+3. Implement a proper solution or file a radar if it's a framework bug
+
+## Hand-Off Format
+
+Create a file in `docs/handoffs/` with date-coded naming (e.g. `docs/handoffs/20260315_<topic-slug>.md`) containing:
+
+- **Problem**: Clear description and reproduction steps
+- **What was tried**: Approaches attempted and why they failed
+- **Context**: Relevant files, APIs, constraints
+- **Success criteria**: What a good fix looks like
+- **References**: Stack Overflow, Apple docs, or forum links already found

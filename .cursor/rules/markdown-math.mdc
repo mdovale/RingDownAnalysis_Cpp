@@ -1,0 +1,35 @@
+---
+description: Markdown math uses $ and $$ so previews render (KaTeX)
+globs: **/*.md
+alwaysApply: false
+---
+
+# Markdown math (preview-friendly)
+
+When editing **`*.md`** files that include mathematics:
+
+## Delimiters (required)
+
+- **Inline math:** wrap LaTeX in single dollar signs: `$…$` (e.g. `$\mathbf{g}=\nabla W$`).
+- **Display math:** use a fenced block with double dollars, alone on lines:
+
+  ```markdown
+  $$
+  \phi = \frac{\pi}{2} - \vartheta .
+  $$
+  ```
+
+Do **not** rely on `\(` `\)` or `\[…\]` for new content — Cursor / VS Code **Markdown Math** (KaTeX) recognizes `$` / `$$` by default.
+
+## Tables and punctuation
+
+- Math inside table cells works: `| $\omega$ | … |`.
+- Keep closing punctuation outside the `$…$` when the whole phrase is not math (e.g. “value $\phi$.” with the period outside).
+
+## Escaping
+
+- Avoid bare underscores in running text outside math (they italicize). Use `$x_i$` or backticks for identifiers.
+
+## Optional callout
+
+For long notation docs, a one-line blockquote at the top explaining `$` / `$$` is welcome.

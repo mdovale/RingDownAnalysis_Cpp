@@ -1,0 +1,140 @@
+---
+description: Create handoff documents between agents when handing off work (bugs, investigations, or features)
+alwaysApply: false
+---
+
+# Handoff Documents Between Agents
+
+When handing off work to another agent or session, create a handoff document in `docs/handoffs/` so the next engineer has full context. Handoffs are not only for bugs: use them for **new features**, **enhancements**, **partial implementations**, and **architecture or product decisions** that need a clean continuation.
+
+When **implementing** an existing handoff, follow `AGENTS.md` and
+`.cursor/rules/git-workflow.mdc` (single trunk, linear history, frequent small
+commits).
+
+## When to Create a Handoff
+
+**Investigations and bugs**
+
+- An issue remains reproducible after multiple attempts
+- You are stopping work without a proper fix (per no-hacky-workarounds rule)
+- A complex investigation needs continuation in a fresh session
+- Architecture revision is recommended before further patching
+
+**Features and product work**
+
+- A feature or enhancement is partially implemented and the next chunk should start with written context (API choices, UX decisions, what is already merged)
+- The scope is large or multi-phase and you are handing off the next phase or milestone
+- Design or constraints were settled in discussion and should be recorded so implementation stays consistent
+- You need to pause before acceptance testing, App Store notes, or polish, and want the next session to pick up from a clear checklist
+
+## File Naming
+
+- `docs/handoffs/YYYYMMDD_<topic-slug>.md` — date-coded, lowercase slug (e.g. `20260315_scroll-passthrough-arch-revision.md`)
+- If multiple handoffs for the same date and topic already exist, insert a letter after the date: `20260315b_<topic-slug>.md`, `20260315c_<topic-slug>.md`, etc.
+
+## Required Sections (Minimum)
+
+Every handoff must include:
+
+- **Current status**: Where things stand when you stop. For bugs: reproducible? Last known behavior? For features: what is implemented, what is explicitly out of scope or deferred, and any branches or WIP to be aware of.
+- **Problem, feature, or goal**: For bugs: clear description and reproduction steps. For features: what we are building, who it is for, desired behavior, and non-goals or boundaries if they matter.
+- **Context**: Relevant files, APIs, constraints, dependencies, settings, or store rules
+- **Success criteria**: Definition of done — for a bug, what “fixed” means; for a feature, what must be true to ship or merge (behavior, performance, accessibility, etc.)
+- **References**: Stack Overflow, Apple docs, forum links, internal docs, or design notes already found (if any)
+
+## Extended Sections (When Applicable)
+
+**Either bugs or features**
+
+- **Scope**: What this handoff covers (flow, mode, view, milestone)
+- **Recommended next steps**: Concrete actions for the next agent
+- **Files modified during attempts**: List of touched files
+- **Test coverage gaps**: What tests exist vs what is untested
+- **Branch/workspace notes**: Unrelated changes, do-not-revert warnings
+
+**More common for bugs and investigations**
+
+- **What was tried**: Approaches attempted and why they failed or were abandoned
+- **Repro scenario**: Step-by-step repro with expected vs actual
+- **Failure signatures**: Log patterns, event phases, timing clues
+- **Observed environment signals**: Log noise, unrelated errors
+- **Most likely remaining failure modes**: Hypotheses for next investigation
+
+**More common for features and enhancements**
+
+- **Product or UX goal**: Why we are building this and how it should feel to the user
+- **Design decisions already made**: Data model, navigation, storage, or API choices to preserve
+- **Implementation plan / remaining work**: Phases, ordered tasks, or open questions for the implementer
+- **Acceptance criteria**: Checklist the next agent can verify (including edge cases and settings)
+
+## Example Structures
+
+### Bug or investigation (detailed)
+
+```markdown
+# Handoff: <Topic> [Optional: Date or Subtitle]
+
+## Scope
+Brief statement of what this handoff covers.
+
+## Problem
+Clear description. Reproduction steps.
+
+## Current Status
+- Bug reproducible? Last known behavior?
+
+## Repro Scenario
+1. Step one
+2. Step two
+Expected: X. Actual: Y.
+
+## What Was Tried
+### Attempt 1: <Name>
+Changes: ... Result: ...
+
+### Attempt 2: <Name>
+...
+
+## Context
+Relevant files, APIs, constraints.
+
+## Success Criteria
+What a good fix looks like.
+
+## Recommended Next Steps
+1. Action for next agent
+2. ...
+
+## References
+Links to docs, forums, etc.
+```
+
+### Feature or enhancement (detailed)
+
+```markdown
+# Handoff: <Feature name> [Optional: milestone]
+
+## Scope
+What this document covers (e.g. phase 2 only, settings + persistence, not polish).
+
+## Feature / Goal
+What we are building, user-facing behavior, non-goals.
+
+## Current Status
+What is done, what is in progress, what is not started.
+
+## Context
+Files to touch, existing patterns to follow, constraints (sandbox, OS version, performance).
+
+## Design decisions (if any)
+Locked choices the next implementer should not unknowingly undo.
+
+## Success criteria / acceptance
+Definition of done; checklist if helpful.
+
+## Recommended next steps
+Ordered tasks or open questions.
+
+## References
+Docs, HIG, APIs, prior handoffs.
+```

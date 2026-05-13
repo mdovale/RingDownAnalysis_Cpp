@@ -1,0 +1,12 @@
+---
+description: Never delete documentation, including handoff documents
+alwaysApply: true
+---
+
+# No Deleting Documentation
+
+Do not delete documentation files as part of routine cleanup, refactors, or “tidying.” This includes everything under `docs/`, especially `docs/handoffs/`.
+
+- Do not remove handoff or feature docs because a task is “done” or superseded — they are historical context for humans and future sessions.
+- If content is wrong or obsolete, prefer updating the doc with a short note or superseding section rather than deleting the file.
+- Only remove a doc when the user explicitly asks to delete that specific file (or clearly authorizes removal of named paths).
