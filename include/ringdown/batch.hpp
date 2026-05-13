@@ -29,6 +29,50 @@ struct SummaryStatistics {
   double maximum{0.0};
 };
 
+struct BatchSummaryRow {
+  std::string filename;
+  std::string file_type;
+  std::size_t sample_count{0};
+  std::size_t cropped_sample_count{0};
+  double observation_time{0.0};
+  double cropped_observation_time{0.0};
+  double sample_rate_hz{0.0};
+  double tau_estimate{0.0};
+  double tau_nls{0.0};
+  double tau_dft{0.0};
+  double frequency_nls{0.0};
+  double frequency_dft{0.0};
+  double frequency_difference{0.0};
+  double quality_factor_nls{0.0};
+  double quality_factor_dft{0.0};
+  double plugin_crlb_std_f{0.0};
+  double amplitude{0.0};
+  double sigma{0.0};
+  bool nls_success{false};
+  bool dft_success{false};
+  bool uncertainty_valid{false};
+};
+
+struct ConsistencyAnalysis {
+  std::size_t realization_count{0};
+  std::size_t pairwise_comparison_count{0};
+  std::vector<double> nls_pairwise_differences;
+  std::vector<double> dft_pairwise_differences;
+  SummaryStatistics nls_pairwise_statistics;
+  SummaryStatistics dft_pairwise_statistics;
+  SummaryStatistics nls_frequency_statistics;
+  SummaryStatistics dft_frequency_statistics;
+};
+
+struct UncertaintyComparison {
+  std::vector<double> frequency_differences;
+  std::vector<double> plugin_crlb_stds;
+  std::vector<double> ratios;
+  SummaryStatistics difference_statistics;
+  SummaryStatistics plugin_crlb_statistics;
+  SummaryStatistics ratio_statistics;
+};
+
 class BatchRingDownAnalyzer {
 public:
   explicit BatchRingDownAnalyzer(RingDownAnalyzer analyzer = RingDownAnalyzer{});
@@ -36,6 +80,9 @@ public:
   [[nodiscard]] ProcessResult process_files(const std::vector<std::string>& filepaths,
                                             std::size_t worker_count = 1);
   [[nodiscard]] std::vector<double> calculate_q_factors() const;
+  [[nodiscard]] std::vector<BatchSummaryRow> summary_table() const;
+  [[nodiscard]] ConsistencyAnalysis consistency_analysis() const;
+  [[nodiscard]] UncertaintyComparison uncertainty_comparison() const;
   [[nodiscard]] SummaryStatistics nls_frequency_statistics() const;
   [[nodiscard]] SummaryStatistics dft_frequency_statistics() const;
 
@@ -45,5 +92,7 @@ private:
   RingDownAnalyzer analyzer_;
   std::vector<AnalyzerResult> results_;
 };
+
+[[nodiscard]] std::string to_json(const ProcessResult& result);
 
 } // namespace ringdown

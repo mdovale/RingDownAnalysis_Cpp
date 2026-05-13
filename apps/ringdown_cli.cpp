@@ -2,7 +2,9 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <string_view>
+#include <vector>
 
 int main(int argc, char** argv) {
   try {
@@ -10,6 +12,18 @@ int main(int argc, char** argv) {
       const auto result = ringdown::RingDownAnalyzer{}.analyze_file(argv[2]);
       std::cout << ringdown::to_json(result);
       return 0;
+    }
+
+    if (argc >= 3 && std::string_view{argv[1]} == "batch") {
+      auto files = std::vector<std::string>{};
+      files.reserve(static_cast<std::size_t>(argc - 2));
+      for (auto index = 2; index < argc; ++index) {
+        files.emplace_back(argv[index]);
+      }
+      auto analyzer = ringdown::BatchRingDownAnalyzer{};
+      const auto result = analyzer.process_files(files);
+      std::cout << ringdown::to_json(result);
+      return result.has_failures() ? 1 : 0;
     }
 
     if (argc == 2 && std::string_view{argv[1]} == "monte-carlo-smoke") {
@@ -25,6 +39,7 @@ int main(int argc, char** argv) {
     std::cout << "RingDownAnalysisCpp " << ringdown::version() << '\n'
               << "Usage:\n"
               << "  ringdown_cli analyze <file.csv>\n"
+              << "  ringdown_cli batch <file.csv|file.mat>...\n"
               << "  ringdown_cli monte-carlo-smoke\n";
     return 0;
   } catch (const std::exception& error) {

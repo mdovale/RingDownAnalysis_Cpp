@@ -214,8 +214,17 @@ RINGDOWN_TEST(batch_workflow_matches_pipeline_fixture) {
                           "batch failure count");
   const auto nls_stats = analyzer.nls_frequency_statistics();
   const auto dft_stats = analyzer.dft_frequency_statistics();
+  const auto summary = analyzer.summary_table();
+  const auto consistency = analyzer.consistency_analysis();
+  const auto uncertainty = analyzer.uncertainty_comparison();
   require_near(nls_stats.mean, extract_number(text, "nls_mean", batch), 7.5e-2, "batch NLS mean");
   require_near(dft_stats.mean, extract_number(text, "dft_mean", batch), 7.5e-2, "batch DFT mean");
+  ringdown::test::require(summary.size() == static_cast<std::size_t>(extract_number(text, "summary_rows", batch)),
+                          "batch summary row count");
+  ringdown::test::require(consistency.pairwise_comparison_count == 1U, "batch pairwise comparisons");
+  ringdown::test::require(uncertainty.frequency_differences.size() ==
+                              static_cast<std::size_t>(extract_number(text, "frequency_diff_count", batch)),
+                          "batch uncertainty comparison count");
 }
 
 RINGDOWN_TEST(monte_carlo_runs_deterministically) {
