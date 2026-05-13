@@ -7,7 +7,7 @@ The C++ library now covers the core workflows from the Python reference:
 - synthetic ring-down signal generation;
 - CRLB-style frequency and Q diagnostics;
 - DFT and separable least-squares frequency, tau, and Q estimation;
-- Moku CSV and MATLAB v5 `moku.data` loading;
+- Moku CSV, MATLAB v5 `moku.data`, and single-CSV ZIP loading;
 - array and file analysis;
 - sequential and parallel batch processing with structured summaries;
 - deterministic Monte Carlo studies;
@@ -27,12 +27,13 @@ Analyze one file:
 ```bash
 build/release/apps/ringdown_cli analyze path/to/file.csv > result.json
 build/release/apps/ringdown_cli analyze path/to/file.mat > result.json
+build/release/apps/ringdown_cli analyze path/to/file.zip > result.json
 ```
 
 Analyze a batch:
 
 ```bash
-build/release/apps/ringdown_cli batch path/to/a.csv path/to/b.mat > batch.json
+build/release/apps/ringdown_cli batch path/to/a.csv path/to/b.mat path/to/c.zip > batch.json
 ```
 
 Run a deterministic Monte Carlo study:

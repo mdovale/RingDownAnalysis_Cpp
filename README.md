@@ -15,7 +15,7 @@ This repository contains the first C++ vertical slice of the Python
 - deterministic ring-down signal generation
 - CRLB frequency and Q diagnostics
 - DFT and separable least-squares frequency/tau/Q estimators
-- array analysis and Moku-style CSV loading
+- array analysis and Moku-style CSV, MAT, and single-CSV ZIP loading
 - sequential/parallel batch processing helpers
 - deterministic Monte Carlo runner
 - JSON export for analysis results
@@ -54,7 +54,8 @@ compare behavior, but do not vendor it into this repository.
 ```bash
 build/dev/apps/ringdown_cli analyze path/to/data.csv
 build/dev/apps/ringdown_cli analyze path/to/data.mat
-build/dev/apps/ringdown_cli batch path/to/a.csv path/to/b.mat
+build/dev/apps/ringdown_cli analyze path/to/data.zip
+build/dev/apps/ringdown_cli batch path/to/a.csv path/to/b.mat path/to/c.zip
 build/dev/apps/ringdown_cli monte-carlo 100 100000 8
 build/dev/apps/ringdown_cli monte-carlo-smoke
 ```

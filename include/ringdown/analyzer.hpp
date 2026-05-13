@@ -82,6 +82,7 @@ public:
   [[nodiscard]] static LoadedData load(const std::string& filepath);
   [[nodiscard]] static LoadedData load_csv(const std::string& filepath);
   [[nodiscard]] static LoadedData load_mat(const std::string& filepath);
+  [[nodiscard]] static LoadedData load_zip(const std::string& filepath);
 };
 
 [[nodiscard]] std::string to_json(const AnalyzerResult& result);

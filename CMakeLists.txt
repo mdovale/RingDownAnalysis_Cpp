@@ -13,6 +13,8 @@ option(RINGDOWN_BUILD_TESTS "Build RingDownAnalysisCpp tests" ON)
 option(RINGDOWN_BUILD_BENCHMARKS "Build RingDownAnalysisCpp benchmarks" ON)
 option(RINGDOWN_BUILD_APPS "Build RingDownAnalysisCpp command-line tools" ON)
 
+find_package(ZLIB REQUIRED)
+
 add_library(ringdownanalysis)
 add_library(RingDownAnalysisCpp::ringdownanalysis ALIAS ringdownanalysis)
 
@@ -41,6 +43,7 @@ target_include_directories(
   ringdownanalysis
   PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
          $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(ringdownanalysis PRIVATE ZLIB::ZLIB)
 ringdown_apply_project_options(ringdownanalysis)
 
 if(RINGDOWN_BUILD_APPS)

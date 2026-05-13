@@ -53,8 +53,8 @@ int main(int argc, char** argv) {
 
     std::cout << "RingDownAnalysisCpp " << ringdown::version() << '\n'
               << "Usage:\n"
-              << "  ringdown_cli analyze <file.csv>\n"
-              << "  ringdown_cli batch <file.csv|file.mat>...\n"
+              << "  ringdown_cli analyze <file.csv|file.mat|file.zip>\n"
+              << "  ringdown_cli batch <file.csv|file.mat|file.zip>...\n"
               << "  ringdown_cli monte-carlo [trials] [samples] [workers]\n"
               << "  ringdown_cli monte-carlo-smoke\n";
     return 0;

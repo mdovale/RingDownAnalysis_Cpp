@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -12,6 +13,8 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <zlib.h>
 
 namespace {
 
@@ -99,6 +102,118 @@ void require_invalid_argument(Function&& function, std::string_view message) {
     throw ringdown::test::AssertionFailure{out.str()};
   }
   throw ringdown::test::AssertionFailure{std::string{message}};
+}
+
+[[nodiscard]] std::string read_text_file(const std::filesystem::path& path) {
+  auto file = std::ifstream{path};
+  if (!file) {
+    throw std::runtime_error{"failed to open text file: " + path.string()};
+  }
+  auto buffer = std::ostringstream{};
+  buffer << file.rdbuf();
+  return buffer.str();
+}
+
+void append_u16(std::vector<unsigned char>& bytes, std::uint16_t value) {
+  bytes.push_back(static_cast<unsigned char>(value & 0xFFU));
+  bytes.push_back(static_cast<unsigned char>((value >> 8U) & 0xFFU));
+}
+
+void append_u32(std::vector<unsigned char>& bytes, std::uint32_t value) {
+  bytes.push_back(static_cast<unsigned char>(value & 0xFFU));
+  bytes.push_back(static_cast<unsigned char>((value >> 8U) & 0xFFU));
+  bytes.push_back(static_cast<unsigned char>((value >> 16U) & 0xFFU));
+  bytes.push_back(static_cast<unsigned char>((value >> 24U) & 0xFFU));
+}
+
+void append_text(std::vector<unsigned char>& bytes, std::string_view text) {
+  for (const auto ch : text) {
+    bytes.push_back(static_cast<unsigned char>(ch));
+  }
+}
+
+void write_deflated_csv_zip(const std::filesystem::path& path,
+                            std::string_view entry_name,
+                            std::string_view csv_text) {
+  if (entry_name.size() > std::numeric_limits<std::uint16_t>::max() ||
+      csv_text.size() > std::numeric_limits<std::uint32_t>::max() ||
+      csv_text.size() > std::numeric_limits<uInt>::max()) {
+    throw std::runtime_error{"ZIP test fixture input is too large"};
+  }
+
+  auto compressed = std::vector<unsigned char>(compressBound(static_cast<uLong>(csv_text.size())));
+  auto stream = z_stream{};
+  stream.next_in = const_cast<Bytef*>(reinterpret_cast<const Bytef*>(csv_text.data()));
+  stream.avail_in = static_cast<uInt>(csv_text.size());
+  stream.next_out = compressed.data();
+  stream.avail_out = static_cast<uInt>(compressed.size());
+  if (deflateInit2(&stream, Z_BEST_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY) !=
+      Z_OK) {
+    throw std::runtime_error{"failed to initialize ZIP test fixture deflater"};
+  }
+  const auto compression_status = deflate(&stream, Z_FINISH);
+  const auto end_status = deflateEnd(&stream);
+  if (compression_status != Z_STREAM_END || end_status != Z_OK ||
+      stream.total_out > std::numeric_limits<std::uint32_t>::max()) {
+    throw std::runtime_error{"failed to deflate ZIP test fixture"};
+  }
+  compressed.resize(static_cast<std::size_t>(stream.total_out));
+
+  auto crc = crc32(0L, Z_NULL, 0U);
+  crc = crc32(crc, reinterpret_cast<const Bytef*>(csv_text.data()), static_cast<uInt>(csv_text.size()));
+
+  auto bytes = std::vector<unsigned char>{};
+  const auto local_header_offset = static_cast<std::uint32_t>(bytes.size());
+  append_u32(bytes, 0x04034b50U);
+  append_u16(bytes, 20U);
+  append_u16(bytes, 0U);
+  append_u16(bytes, 8U);
+  append_u16(bytes, 0U);
+  append_u16(bytes, 0U);
+  append_u32(bytes, static_cast<std::uint32_t>(crc));
+  append_u32(bytes, static_cast<std::uint32_t>(compressed.size()));
+  append_u32(bytes, static_cast<std::uint32_t>(csv_text.size()));
+  append_u16(bytes, static_cast<std::uint16_t>(entry_name.size()));
+  append_u16(bytes, 0U);
+  append_text(bytes, entry_name);
+  bytes.insert(bytes.end(), compressed.begin(), compressed.end());
+
+  const auto central_directory_offset = static_cast<std::uint32_t>(bytes.size());
+  append_u32(bytes, 0x02014b50U);
+  append_u16(bytes, 20U);
+  append_u16(bytes, 20U);
+  append_u16(bytes, 0U);
+  append_u16(bytes, 8U);
+  append_u16(bytes, 0U);
+  append_u16(bytes, 0U);
+  append_u32(bytes, static_cast<std::uint32_t>(crc));
+  append_u32(bytes, static_cast<std::uint32_t>(compressed.size()));
+  append_u32(bytes, static_cast<std::uint32_t>(csv_text.size()));
+  append_u16(bytes, static_cast<std::uint16_t>(entry_name.size()));
+  append_u16(bytes, 0U);
+  append_u16(bytes, 0U);
+  append_u16(bytes, 0U);
+  append_u16(bytes, 0U);
+  append_u32(bytes, 0U);
+  append_u32(bytes, local_header_offset);
+  append_text(bytes, entry_name);
+
+  const auto central_directory_size =
+      static_cast<std::uint32_t>(bytes.size() - central_directory_offset);
+  append_u32(bytes, 0x06054b50U);
+  append_u16(bytes, 0U);
+  append_u16(bytes, 0U);
+  append_u16(bytes, 1U);
+  append_u16(bytes, 1U);
+  append_u32(bytes, central_directory_size);
+  append_u32(bytes, central_directory_offset);
+  append_u16(bytes, 0U);
+
+  auto output = std::ofstream{path, std::ios::binary};
+  if (!output) {
+    throw std::runtime_error{"failed to open ZIP test fixture for writing: " + path.string()};
+  }
+  output.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 }
 
 } // namespace
@@ -208,12 +323,21 @@ RINGDOWN_TEST(loader_and_analyzer_run_file_workflows) {
   const auto mat = find_key(text, "mat", file_fixtures);
   const auto csv_analysis = find_key(text, "analysis", csv);
   const auto mat_analysis = find_key(text, "analysis", mat);
+  const auto zip_path = std::filesystem::current_path() / "moku_small_deflated.zip";
+  write_deflated_csv_zip(zip_path,
+                         "nested/moku_small.csv",
+                         read_text_file(reference_fixture_path("moku_small.csv")));
 
   const auto csv_loaded = ringdown::RingDownDataLoader::load(reference_fixture_path("moku_small.csv").string());
   const auto mat_loaded = ringdown::RingDownDataLoader::load(reference_fixture_path("moku_small.mat").string());
+  const auto zip_loaded = ringdown::RingDownDataLoader::load(zip_path.string());
 
   ringdown::test::require(csv_loaded.file_type == "CSV", "CSV fixture should load as CSV");
   ringdown::test::require(mat_loaded.file_type == "MAT", "MAT fixture should load as MAT");
+  ringdown::test::require(zip_loaded.file_type == "ZIP_CSV", "ZIP fixture should load as ZIP_CSV");
+  ringdown::test::require(zip_loaded.samples.size() == csv_loaded.samples.size(),
+                          "ZIP CSV sample count should match CSV fixture");
+  require_near(zip_loaded.samples.front(), csv_loaded.samples.front(), 1.0e-12, "ZIP CSV first sample");
   ringdown::test::require(mat_loaded.secondary_samples.size() == mat_loaded.samples.size(),
                           "MAT fixture should expose V2");
   require_near(mat_loaded.secondary_samples.front(), extract_number(text, "v2_first", mat), 1.0e-12, "MAT V2");
@@ -221,6 +345,7 @@ RINGDOWN_TEST(loader_and_analyzer_run_file_workflows) {
   const auto analyzer = ringdown::RingDownAnalyzer{};
   const auto csv_result = analyzer.analyze_file(reference_fixture_path("moku_small.csv").string());
   const auto mat_result = analyzer.analyze_file(reference_fixture_path("moku_small.mat").string());
+  const auto zip_result = analyzer.analyze_file(zip_path.string());
 
   require_near(csv_result.nls.frequency_hz, extract_number(text, "f_nls", csv_analysis), 7.5e-2,
                "CSV analyzer NLS");
@@ -230,6 +355,10 @@ RINGDOWN_TEST(loader_and_analyzer_run_file_workflows) {
                "MAT analyzer NLS");
   require_near(mat_result.dft.frequency_hz, extract_number(text, "f_dft", mat_analysis), 7.5e-2,
                "MAT analyzer DFT");
+  require_near(zip_result.nls.frequency_hz, csv_result.nls.frequency_hz, 1.0e-12, "ZIP analyzer NLS");
+  require_near(zip_result.dft.frequency_hz, csv_result.dft.frequency_hz, 1.0e-12, "ZIP analyzer DFT");
+
+  std::filesystem::remove(zip_path);
 }
 
 RINGDOWN_TEST(batch_workflow_matches_pipeline_fixture) {

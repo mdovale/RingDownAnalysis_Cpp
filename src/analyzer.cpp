@@ -4,18 +4,23 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <limits>
 #include <numbers>
 #include <numeric>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
+
+#include <zlib.h>
 
 namespace ringdown {
 
@@ -161,6 +166,192 @@ void validate_samples(const std::vector<double>& samples, const char* source) {
     return false;
   }
   return parse_double(fields[0], time) && parse_double(fields[3], sample);
+}
+
+[[nodiscard]] std::string lower_ascii(std::string value) {
+  for (auto& ch : value) {
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  }
+  return value;
+}
+
+[[nodiscard]] std::uint16_t read_u16(const std::vector<unsigned char>& bytes, std::size_t offset) {
+  if (offset + sizeof(std::uint16_t) > bytes.size()) {
+    throw std::invalid_argument{"Invalid ZIP file structure: truncated uint16"};
+  }
+  return static_cast<std::uint16_t>(bytes[offset]) |
+         static_cast<std::uint16_t>(static_cast<std::uint16_t>(bytes[offset + 1U]) << 8U);
+}
+
+[[nodiscard]] std::uint32_t read_u32(const std::vector<unsigned char>& bytes, std::size_t offset) {
+  if (offset + sizeof(std::uint32_t) > bytes.size()) {
+    throw std::invalid_argument{"Invalid ZIP file structure: truncated uint32"};
+  }
+  return static_cast<std::uint32_t>(bytes[offset]) |
+         (static_cast<std::uint32_t>(bytes[offset + 1U]) << 8U) |
+         (static_cast<std::uint32_t>(bytes[offset + 2U]) << 16U) |
+         (static_cast<std::uint32_t>(bytes[offset + 3U]) << 24U);
+}
+
+struct ZipEntry {
+  std::string name;
+  std::uint16_t flags{0U};
+  std::uint16_t method{0U};
+  std::uint32_t compressed_size{0U};
+  std::uint32_t uncompressed_size{0U};
+  std::uint32_t local_header_offset{0U};
+};
+
+[[nodiscard]] bool is_directory_entry(std::string_view name) {
+  return !name.empty() && (name.back() == '/' || name.back() == '\\');
+}
+
+[[nodiscard]] bool is_csv_entry(std::string_view name) {
+  return lower_ascii(std::filesystem::path{std::string{name}}.extension().string()) == ".csv";
+}
+
+[[nodiscard]] std::size_t find_zip_eocd(const std::vector<unsigned char>& bytes) {
+  constexpr auto eocd_signature = std::uint32_t{0x06054b50U};
+  constexpr auto min_eocd_size = std::size_t{22U};
+  if (bytes.size() < min_eocd_size) {
+    throw std::invalid_argument{"Invalid ZIP file structure: file is too small"};
+  }
+  const auto search_start =
+      bytes.size() - std::min<std::size_t>(bytes.size(), min_eocd_size + 0xFFFFU);
+  for (auto offset = bytes.size() - min_eocd_size + 1U; offset > search_start; --offset) {
+    const auto candidate = offset - 1U;
+    if (read_u32(bytes, candidate) == eocd_signature) {
+      return candidate;
+    }
+  }
+  throw std::invalid_argument{"Invalid ZIP file structure: missing end-of-central-directory record"};
+}
+
+[[nodiscard]] std::vector<ZipEntry> read_zip_entries(const std::vector<unsigned char>& bytes) {
+  constexpr auto central_signature = std::uint32_t{0x02014b50U};
+  const auto eocd = find_zip_eocd(bytes);
+  if (read_u16(bytes, eocd + 4U) != 0U || read_u16(bytes, eocd + 6U) != 0U) {
+    throw std::invalid_argument{"Invalid ZIP file structure: multi-disk archives are not supported"};
+  }
+
+  const auto entry_count = read_u16(bytes, eocd + 10U);
+  const auto central_size = read_u32(bytes, eocd + 12U);
+  const auto central_offset = read_u32(bytes, eocd + 16U);
+  if (static_cast<std::size_t>(central_offset) + static_cast<std::size_t>(central_size) > bytes.size()) {
+    throw std::invalid_argument{"Invalid ZIP file structure: central directory exceeds file size"};
+  }
+
+  auto entries = std::vector<ZipEntry>{};
+  entries.reserve(entry_count);
+  auto cursor = static_cast<std::size_t>(central_offset);
+  for (auto index = std::uint16_t{0U}; index < entry_count; ++index) {
+    if (cursor + 46U > bytes.size() || read_u32(bytes, cursor) != central_signature) {
+      throw std::invalid_argument{"Invalid ZIP file structure: malformed central directory"};
+    }
+    const auto compressed_size = read_u32(bytes, cursor + 20U);
+    const auto uncompressed_size = read_u32(bytes, cursor + 24U);
+    const auto name_size = read_u16(bytes, cursor + 28U);
+    const auto extra_size = read_u16(bytes, cursor + 30U);
+    const auto comment_size = read_u16(bytes, cursor + 32U);
+    const auto local_header_offset = read_u32(bytes, cursor + 42U);
+    if (compressed_size == 0xFFFFFFFFU || uncompressed_size == 0xFFFFFFFFU ||
+        local_header_offset == 0xFFFFFFFFU) {
+      throw std::invalid_argument{"Invalid ZIP file structure: ZIP64 archives are not supported"};
+    }
+    const auto name_offset = cursor + 46U;
+    const auto next = name_offset + static_cast<std::size_t>(name_size) +
+                      static_cast<std::size_t>(extra_size) + static_cast<std::size_t>(comment_size);
+    if (next > bytes.size()) {
+      throw std::invalid_argument{"Invalid ZIP file structure: central directory entry exceeds file size"};
+    }
+    entries.push_back(ZipEntry{
+        std::string{reinterpret_cast<const char*>(bytes.data() + name_offset), name_size},
+        read_u16(bytes, cursor + 8U),
+        read_u16(bytes, cursor + 10U),
+        compressed_size,
+        uncompressed_size,
+        local_header_offset});
+    cursor = next;
+  }
+  return entries;
+}
+
+[[nodiscard]] const ZipEntry& select_single_csv_entry(const std::vector<ZipEntry>& entries,
+                                                     const std::string& filepath) {
+  auto selected = static_cast<const ZipEntry*>(nullptr);
+  auto non_directory_count = std::size_t{0};
+  for (const auto& entry : entries) {
+    if (is_directory_entry(entry.name)) {
+      continue;
+    }
+    ++non_directory_count;
+    if (!is_csv_entry(entry.name)) {
+      throw std::invalid_argument{"ZIP file must contain exactly one .csv file: " + filepath};
+    }
+    if (selected != nullptr) {
+      throw std::invalid_argument{"ZIP file must contain exactly one .csv file: " + filepath};
+    }
+    selected = &entry;
+  }
+  if (selected == nullptr || non_directory_count != 1U) {
+    throw std::invalid_argument{"ZIP file must contain exactly one .csv file: " + filepath};
+  }
+  return *selected;
+}
+
+[[nodiscard]] std::string inflate_raw_deflate(const unsigned char* compressed,
+                                             std::size_t compressed_size,
+                                             std::uint32_t uncompressed_size) {
+  if (compressed_size > static_cast<std::size_t>(std::numeric_limits<uInt>::max())) {
+    throw std::invalid_argument{"Invalid ZIP file structure: compressed entry is too large"};
+  }
+  auto output = std::string(uncompressed_size, '\0');
+  auto stream = z_stream{};
+  stream.next_in = const_cast<Bytef*>(reinterpret_cast<const Bytef*>(compressed));
+  stream.avail_in = static_cast<uInt>(compressed_size);
+  stream.next_out = reinterpret_cast<Bytef*>(output.data());
+  stream.avail_out = static_cast<uInt>(output.size());
+
+  if (inflateInit2(&stream, -MAX_WBITS) != Z_OK) {
+    throw std::runtime_error{"Failed to initialize ZIP deflate decompressor"};
+  }
+  const auto status = inflate(&stream, Z_FINISH);
+  const auto end_status = inflateEnd(&stream);
+  if (status != Z_STREAM_END || end_status != Z_OK || stream.total_out != output.size()) {
+    throw std::invalid_argument{"Invalid ZIP file structure: deflate payload could not be decompressed"};
+  }
+  return output;
+}
+
+[[nodiscard]] std::string extract_zip_entry(const std::vector<unsigned char>& bytes,
+                                           const ZipEntry& entry) {
+  constexpr auto local_signature = std::uint32_t{0x04034b50U};
+  if ((entry.flags & 0x1U) != 0U) {
+    throw std::invalid_argument{"Invalid ZIP file structure: encrypted entries are not supported"};
+  }
+  const auto local_offset = static_cast<std::size_t>(entry.local_header_offset);
+  if (local_offset + 30U > bytes.size() || read_u32(bytes, local_offset) != local_signature) {
+    throw std::invalid_argument{"Invalid ZIP file structure: malformed local file header"};
+  }
+  const auto local_name_size = read_u16(bytes, local_offset + 26U);
+  const auto local_extra_size = read_u16(bytes, local_offset + 28U);
+  const auto data_offset = local_offset + 30U + static_cast<std::size_t>(local_name_size) +
+                           static_cast<std::size_t>(local_extra_size);
+  const auto compressed_size = static_cast<std::size_t>(entry.compressed_size);
+  if (data_offset + compressed_size > bytes.size()) {
+    throw std::invalid_argument{"Invalid ZIP file structure: compressed entry exceeds file size"};
+  }
+
+  if (entry.method == 0U) {
+    if (entry.compressed_size != entry.uncompressed_size) {
+      throw std::invalid_argument{"Invalid ZIP file structure: stored entry size mismatch"};
+    }
+    return std::string{reinterpret_cast<const char*>(bytes.data() + data_offset), compressed_size};
+  }
+  if (entry.method == 8U) {
+    return inflate_raw_deflate(bytes.data() + data_offset, compressed_size, entry.uncompressed_size);
+  }
+  throw std::invalid_argument{"Invalid ZIP file structure: only stored and deflated CSV entries are supported"};
 }
 
 enum class MatType : std::uint32_t {
@@ -617,22 +808,22 @@ NoiseEstimate RingDownAnalyzer::estimate_noise_parameters(const std::vector<doub
 
 LoadedData RingDownDataLoader::load(const std::string& filepath) {
   const auto path = std::filesystem::path{filepath};
-  const auto extension = path.extension().string();
-  if (extension == ".csv" || extension == ".CSV") {
+  const auto extension = lower_ascii(path.extension().string());
+  if (extension == ".csv") {
     return load_csv(filepath);
   }
-  if (extension == ".mat" || extension == ".MAT") {
+  if (extension == ".mat") {
     return load_mat(filepath);
   }
-  throw std::invalid_argument{"Unsupported file format: expected .csv or .mat"};
+  if (extension == ".zip") {
+    return load_zip(filepath);
+  }
+  throw std::invalid_argument{"Unsupported file format: expected .csv, .mat, or .zip"};
 }
 
-LoadedData RingDownDataLoader::load_csv(const std::string& filepath) {
-  auto file = std::ifstream{filepath};
-  if (!file) {
-    throw std::runtime_error{"Could not open CSV file: " + filepath};
-  }
+namespace {
 
+LoadedData load_csv_stream(std::istream& file, const std::string& source, std::string file_type) {
   auto time = std::vector<double>{};
   auto samples = std::vector<double>{};
   auto line = std::string{};
@@ -647,7 +838,7 @@ LoadedData RingDownDataLoader::load_csv(const std::string& filepath) {
       if (time.empty()) {
         continue;
       }
-      throw std::invalid_argument{"Malformed numeric data in CSV file: " + filepath};
+      throw std::invalid_argument{"Malformed numeric data in CSV file: " + source};
     }
     time.push_back(t);
     samples.push_back(sample);
@@ -662,7 +853,31 @@ LoadedData RingDownDataLoader::load_csv(const std::string& filepath) {
   for (auto& sample : samples) {
     sample -= sample_mean;
   }
-  return LoadedData{time, samples, {}, "CSV"};
+  return LoadedData{time, samples, {}, std::move(file_type)};
+}
+
+} // namespace
+
+LoadedData RingDownDataLoader::load_csv(const std::string& filepath) {
+  auto file = std::ifstream{filepath};
+  if (!file) {
+    throw std::runtime_error{"Could not open CSV file: " + filepath};
+  }
+  return load_csv_stream(file, filepath, "CSV");
+}
+
+LoadedData RingDownDataLoader::load_zip(const std::string& filepath) {
+  auto file = std::ifstream{filepath, std::ios::binary};
+  if (!file) {
+    throw std::runtime_error{"Could not open ZIP file: " + filepath};
+  }
+  auto bytes = std::vector<unsigned char>((std::istreambuf_iterator<char>(file)),
+                                          std::istreambuf_iterator<char>());
+  const auto entries = read_zip_entries(bytes);
+  const auto& csv_entry = select_single_csv_entry(entries, filepath);
+  const auto csv_text = extract_zip_entry(bytes, csv_entry);
+  auto stream = std::istringstream{csv_text};
+  return load_csv_stream(stream, filepath + ":" + csv_entry.name, "ZIP_CSV");
 }
 
 LoadedData RingDownDataLoader::load_mat(const std::string& filepath) {
