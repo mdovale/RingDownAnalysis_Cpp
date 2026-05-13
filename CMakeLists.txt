@@ -18,10 +18,23 @@ add_library(RingDownAnalysisCpp::ringdownanalysis ALIAS ringdownanalysis)
 
 target_sources(
   ringdownanalysis
-  PRIVATE src/version.cpp
+  PRIVATE src/analyzer.cpp
+          src/batch.cpp
+          src/crlb.cpp
+          src/estimators.cpp
+          src/monte_carlo.cpp
+          src/signal.cpp
+          src/version.cpp
   PUBLIC FILE_SET HEADERS
          BASE_DIRS include
-         FILES include/ringdown/ringdown.hpp include/ringdown/version.hpp)
+         FILES include/ringdown/analyzer.hpp
+               include/ringdown/batch.hpp
+               include/ringdown/crlb.hpp
+               include/ringdown/estimators.hpp
+               include/ringdown/monte_carlo.hpp
+               include/ringdown/ringdown.hpp
+               include/ringdown/signal.hpp
+               include/ringdown/version.hpp)
 
 target_compile_features(ringdownanalysis PUBLIC cxx_std_20)
 target_include_directories(
