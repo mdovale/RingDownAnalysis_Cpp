@@ -15,8 +15,8 @@
 namespace {
 
 [[nodiscard]] std::string fixture_text() {
-  const auto path = std::filesystem::path{RINGDOWN_SOURCE_DIR} / "tests" / "fixtures" /
-                    "reference" / "synthetic_5hz_seed42.json";
+  const auto path = std::filesystem::path{RINGDOWN_SOURCE_DIR} / "tests" / "fixtures" / "reference" /
+                    "synthetic_5hz_seed42.json";
   auto file = std::ifstream{path};
   if (!file) {
     throw std::runtime_error{"failed to open fixture: " + path.string()};
@@ -24,6 +24,11 @@ namespace {
   auto buffer = std::ostringstream{};
   buffer << file.rdbuf();
   return buffer.str();
+}
+
+[[nodiscard]] std::filesystem::path reference_fixture_path(std::string_view filename) {
+  return std::filesystem::path{RINGDOWN_SOURCE_DIR} / "tests" / "fixtures" / "reference" /
+         std::string{filename};
 }
 
 [[nodiscard]] std::size_t find_key(const std::string& text, std::string_view key, std::size_t start = 0U) {
@@ -163,6 +168,54 @@ RINGDOWN_TEST(analyzer_runs_array_workflow) {
   require_near(result.dft.frequency_hz, extract_number(text, "f_dft", analysis), 5.0e-2, "analyzer DFT");
   ringdown::test::require(result.plugin_crlb_std_f > 0.0, "analyzer should compute uncertainty");
   ringdown::test::require(result.cropped_sample_count > 0U, "analyzer should keep samples");
+}
+
+RINGDOWN_TEST(loader_and_analyzer_run_file_workflows) {
+  const auto text = fixture_text();
+  const auto file_fixtures = find_key(text, "file_fixtures");
+  const auto csv = find_key(text, "csv", file_fixtures);
+  const auto mat = find_key(text, "mat", file_fixtures);
+  const auto csv_analysis = find_key(text, "analysis", csv);
+  const auto mat_analysis = find_key(text, "analysis", mat);
+
+  const auto csv_loaded = ringdown::RingDownDataLoader::load(reference_fixture_path("moku_small.csv").string());
+  const auto mat_loaded = ringdown::RingDownDataLoader::load(reference_fixture_path("moku_small.mat").string());
+
+  ringdown::test::require(csv_loaded.file_type == "CSV", "CSV fixture should load as CSV");
+  ringdown::test::require(mat_loaded.file_type == "MAT", "MAT fixture should load as MAT");
+  ringdown::test::require(mat_loaded.secondary_samples.size() == mat_loaded.samples.size(),
+                          "MAT fixture should expose V2");
+  require_near(mat_loaded.secondary_samples.front(), extract_number(text, "v2_first", mat), 1.0e-12, "MAT V2");
+
+  const auto analyzer = ringdown::RingDownAnalyzer{};
+  const auto csv_result = analyzer.analyze_file(reference_fixture_path("moku_small.csv").string());
+  const auto mat_result = analyzer.analyze_file(reference_fixture_path("moku_small.mat").string());
+
+  require_near(csv_result.nls.frequency_hz, extract_number(text, "f_nls", csv_analysis), 7.5e-2,
+               "CSV analyzer NLS");
+  require_near(csv_result.dft.frequency_hz, extract_number(text, "f_dft", csv_analysis), 7.5e-2,
+               "CSV analyzer DFT");
+  require_near(mat_result.nls.frequency_hz, extract_number(text, "f_nls", mat_analysis), 7.5e-2,
+               "MAT analyzer NLS");
+  require_near(mat_result.dft.frequency_hz, extract_number(text, "f_dft", mat_analysis), 7.5e-2,
+               "MAT analyzer DFT");
+}
+
+RINGDOWN_TEST(batch_workflow_matches_pipeline_fixture) {
+  const auto text = fixture_text();
+  const auto batch = find_key(text, "batch");
+  auto analyzer = ringdown::BatchRingDownAnalyzer{};
+  const auto processed = analyzer.process_files({reference_fixture_path("moku_small.csv").string(),
+                                                 reference_fixture_path("moku_small.mat").string()});
+
+  ringdown::test::require(processed.results.size() == static_cast<std::size_t>(extract_number(text, "success_count", batch)),
+                          "batch success count");
+  ringdown::test::require(processed.failed_files.size() == static_cast<std::size_t>(extract_number(text, "failure_count", batch)),
+                          "batch failure count");
+  const auto nls_stats = analyzer.nls_frequency_statistics();
+  const auto dft_stats = analyzer.dft_frequency_statistics();
+  require_near(nls_stats.mean, extract_number(text, "nls_mean", batch), 7.5e-2, "batch NLS mean");
+  require_near(dft_stats.mean, extract_number(text, "dft_mean", batch), 7.5e-2, "batch DFT mean");
 }
 
 RINGDOWN_TEST(monte_carlo_runs_deterministically) {

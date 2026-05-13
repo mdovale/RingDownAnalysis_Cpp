@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -161,6 +163,259 @@ void validate_samples(const std::vector<double>& samples, const char* source) {
   return parse_double(fields[0], time) && parse_double(fields[3], sample);
 }
 
+enum class MatType : std::uint32_t {
+  Int8 = 1U,
+  UInt32 = 6U,
+  Double = 9U,
+  Matrix = 14U,
+  Compressed = 15U,
+};
+
+enum class MatClass : std::uint32_t {
+  Struct = 2U,
+  Double = 6U,
+};
+
+struct MatElement {
+  std::uint32_t type{0U};
+  std::uint32_t byte_count{0U};
+  std::size_t data_offset{0U};
+  std::array<unsigned char, 4> small_data{};
+  bool small{false};
+};
+
+struct MatMatrix {
+  std::uint32_t class_type{0U};
+  std::vector<std::int32_t> dimensions;
+  std::string name;
+  std::vector<double> values;
+  std::size_t rows{0U};
+  std::size_t columns{0U};
+  std::vector<std::string> field_names;
+  std::vector<MatMatrix> fields;
+};
+
+template <typename T>
+[[nodiscard]] T read_little_endian(const std::vector<unsigned char>& bytes, std::size_t offset) {
+  if (offset + sizeof(T) > bytes.size()) {
+    throw std::invalid_argument{"Invalid MAT file structure: truncated data element"};
+  }
+  auto value = T{};
+  std::memcpy(&value, bytes.data() + offset, sizeof(T));
+  return value;
+}
+
+[[nodiscard]] std::size_t padded_size(std::size_t byte_count) {
+  return ((byte_count + 7U) / 8U) * 8U;
+}
+
+[[nodiscard]] MatElement read_mat_element(const std::vector<unsigned char>& bytes,
+                                          std::size_t& cursor,
+                                          std::size_t limit) {
+  if (cursor + 8U > limit || limit > bytes.size()) {
+    throw std::invalid_argument{"Invalid MAT file structure: truncated tag"};
+  }
+  const auto first = read_little_endian<std::uint32_t>(bytes, cursor);
+  const auto second = read_little_endian<std::uint32_t>(bytes, cursor + 4U);
+  cursor += 8U;
+
+  auto element = MatElement{};
+  const auto small_type = first & 0xFFFFU;
+  const auto small_count = first >> 16U;
+  if (small_count != 0U) {
+    element.type = small_type;
+    element.byte_count = small_count;
+    element.small = true;
+    std::memcpy(element.small_data.data(), &second, sizeof(second));
+    return element;
+  }
+
+  element.type = first;
+  element.byte_count = second;
+  element.data_offset = cursor;
+  const auto padded = padded_size(element.byte_count);
+  if (cursor + padded > limit) {
+    throw std::invalid_argument{"Invalid MAT file structure: element exceeds file size"};
+  }
+  cursor += padded;
+  return element;
+}
+
+[[nodiscard]] unsigned char mat_byte_at(const std::vector<unsigned char>& bytes,
+                                        const MatElement& element,
+                                        std::size_t offset) {
+  if (offset >= element.byte_count) {
+    throw std::invalid_argument{"Invalid MAT file structure: element byte offset out of range"};
+  }
+  return element.small ? element.small_data[offset] : bytes[element.data_offset + offset];
+}
+
+[[nodiscard]] std::int32_t mat_i32_at(const std::vector<unsigned char>& bytes,
+                                      const MatElement& element,
+                                      std::size_t offset) {
+  if (offset + sizeof(std::int32_t) > element.byte_count) {
+    throw std::invalid_argument{"Invalid MAT file structure: int32 element is truncated"};
+  }
+  if (element.small) {
+    auto value = std::int32_t{};
+    std::memcpy(&value, element.small_data.data() + offset, sizeof(value));
+    return value;
+  }
+  return read_little_endian<std::int32_t>(bytes, element.data_offset + offset);
+}
+
+[[nodiscard]] std::uint32_t mat_u32_at(const std::vector<unsigned char>& bytes,
+                                       const MatElement& element,
+                                       std::size_t offset) {
+  if (offset + sizeof(std::uint32_t) > element.byte_count) {
+    throw std::invalid_argument{"Invalid MAT file structure: uint32 element is truncated"};
+  }
+  if (element.small) {
+    auto value = std::uint32_t{};
+    std::memcpy(&value, element.small_data.data() + offset, sizeof(value));
+    return value;
+  }
+  return read_little_endian<std::uint32_t>(bytes, element.data_offset + offset);
+}
+
+[[nodiscard]] double mat_double_at(const std::vector<unsigned char>& bytes,
+                                   const MatElement& element,
+                                   std::size_t offset) {
+  if (offset + sizeof(double) > element.byte_count || element.small) {
+    throw std::invalid_argument{"Invalid MAT file structure: double element is truncated"};
+  }
+  return read_little_endian<double>(bytes, element.data_offset + offset);
+}
+
+[[nodiscard]] std::string mat_string(const std::vector<unsigned char>& bytes,
+                                     const MatElement& element) {
+  auto value = std::string{};
+  value.reserve(element.byte_count);
+  for (auto index = std::size_t{0}; index < element.byte_count; ++index) {
+    const auto ch = static_cast<char>(mat_byte_at(bytes, element, index));
+    if (ch != '\0') {
+      value.push_back(ch);
+    }
+  }
+  return value;
+}
+
+[[nodiscard]] MatMatrix parse_mat_matrix(const std::vector<unsigned char>& bytes,
+                                         const MatElement& matrix_element);
+
+[[nodiscard]] MatMatrix parse_mat_matrix_payload(const std::vector<unsigned char>& bytes,
+                                                 std::size_t cursor,
+                                                 std::size_t limit) {
+  const auto flags = read_mat_element(bytes, cursor, limit);
+  if (flags.type != static_cast<std::uint32_t>(MatType::UInt32) || flags.byte_count < 8U) {
+    throw std::invalid_argument{"Invalid MAT file structure: missing array flags"};
+  }
+  auto matrix = MatMatrix{};
+  matrix.class_type = mat_u32_at(bytes, flags, 0U) & 0xFFU;
+
+  const auto dimensions = read_mat_element(bytes, cursor, limit);
+  matrix.dimensions.reserve(dimensions.byte_count / sizeof(std::int32_t));
+  for (auto offset = std::size_t{0}; offset + sizeof(std::int32_t) <= dimensions.byte_count;
+       offset += sizeof(std::int32_t)) {
+    matrix.dimensions.push_back(mat_i32_at(bytes, dimensions, offset));
+  }
+  if (matrix.dimensions.size() >= 2U) {
+    matrix.rows = static_cast<std::size_t>(matrix.dimensions[0]);
+    matrix.columns = static_cast<std::size_t>(matrix.dimensions[1]);
+  }
+
+  const auto name = read_mat_element(bytes, cursor, limit);
+  matrix.name = mat_string(bytes, name);
+
+  if (matrix.class_type == static_cast<std::uint32_t>(MatClass::Double)) {
+    const auto real = read_mat_element(bytes, cursor, limit);
+    if (real.type != static_cast<std::uint32_t>(MatType::Double)) {
+      throw std::invalid_argument{"Invalid MAT file structure: expected double payload"};
+    }
+    matrix.values.reserve(real.byte_count / sizeof(double));
+    for (auto offset = std::size_t{0}; offset + sizeof(double) <= real.byte_count; offset += sizeof(double)) {
+      matrix.values.push_back(mat_double_at(bytes, real, offset));
+    }
+    return matrix;
+  }
+
+  if (matrix.class_type == static_cast<std::uint32_t>(MatClass::Struct)) {
+    const auto field_name_length = read_mat_element(bytes, cursor, limit);
+    const auto field_width = static_cast<std::size_t>(mat_i32_at(bytes, field_name_length, 0U));
+    const auto field_names = read_mat_element(bytes, cursor, limit);
+    if (field_width == 0U) {
+      throw std::invalid_argument{"Invalid MAT file structure: zero field-name width"};
+    }
+    const auto field_count = field_names.byte_count / field_width;
+    matrix.field_names.reserve(field_count);
+    for (auto field = std::size_t{0}; field < field_count; ++field) {
+      auto name_value = std::string{};
+      for (auto offset = std::size_t{0}; offset < field_width; ++offset) {
+        const auto ch = static_cast<char>(mat_byte_at(bytes, field_names, field * field_width + offset));
+        if (ch != '\0') {
+          name_value.push_back(ch);
+        }
+      }
+      matrix.field_names.push_back(name_value);
+    }
+
+    const auto struct_elements = std::max<std::size_t>(1U, matrix.rows * matrix.columns);
+    matrix.fields.reserve(field_count * struct_elements);
+    for (auto index = std::size_t{0}; index < field_count * struct_elements; ++index) {
+      const auto field_matrix = read_mat_element(bytes, cursor, limit);
+      if (field_matrix.type != static_cast<std::uint32_t>(MatType::Matrix)) {
+        throw std::invalid_argument{"Invalid MAT file structure: struct field is not a matrix"};
+      }
+      matrix.fields.push_back(parse_mat_matrix(bytes, field_matrix));
+    }
+  }
+
+  return matrix;
+}
+
+[[nodiscard]] MatMatrix parse_mat_matrix(const std::vector<unsigned char>& bytes,
+                                         const MatElement& matrix_element) {
+  if (matrix_element.type != static_cast<std::uint32_t>(MatType::Matrix) || matrix_element.small) {
+    throw std::invalid_argument{"Invalid MAT file structure: expected matrix element"};
+  }
+  return parse_mat_matrix_payload(bytes,
+                                  matrix_element.data_offset,
+                                  matrix_element.data_offset + matrix_element.byte_count);
+}
+
+[[nodiscard]] const MatMatrix& struct_field(const MatMatrix& matrix, std::string_view field_name) {
+  const auto found = std::find(matrix.field_names.begin(), matrix.field_names.end(), field_name);
+  if (found == matrix.field_names.end()) {
+    throw std::invalid_argument{"Invalid MAT file structure: missing moku.data"};
+  }
+  const auto index = static_cast<std::size_t>(std::distance(matrix.field_names.begin(), found));
+  if (index >= matrix.fields.size()) {
+    throw std::invalid_argument{"Invalid MAT file structure: missing struct field payload"};
+  }
+  return matrix.fields[index];
+}
+
+void validate_finite_channel(const std::vector<double>& values,
+                             std::string_view channel,
+                             const std::string& filepath) {
+  if (values.empty()) {
+    throw std::invalid_argument{std::string{channel} + " channel in " + filepath + " contains no samples"};
+  }
+  for (auto index = std::size_t{0}; index < values.size(); ++index) {
+    if (!std::isfinite(values[index])) {
+      throw std::invalid_argument{std::string{channel} + " channel in " + filepath +
+                                  " must contain only finite values"};
+    }
+  }
+}
+
+void remove_mean(std::vector<double>& values) {
+  const auto value_mean = mean(values);
+  for (auto& value : values) {
+    value -= value_mean;
+  }
+}
+
 [[nodiscard]] std::string optional_number(std::optional<double> value) {
   if (!value.has_value()) {
     return "null";
@@ -225,6 +480,7 @@ AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& time,
                         samples,
                         cropped_time,
                         cropped_samples,
+                        {},
                         sample_rate_hz,
                         tau_seed,
                         tau_estimate,
@@ -247,6 +503,7 @@ AnalyzerResult RingDownAnalyzer::analyze_file(const std::string& filepath,
                                               double max_tau_multiplier) const {
   const auto loaded = RingDownDataLoader::load(filepath);
   auto result = analyze_array(loaded.time, loaded.samples, max_tau_multiplier);
+  result.secondary_samples = loaded.secondary_samples;
   result.filename = std::filesystem::path{filepath}.filename().string();
   result.file_type = loaded.file_type;
   return result;
@@ -329,7 +586,7 @@ LoadedData RingDownDataLoader::load(const std::string& filepath) {
     return load_csv(filepath);
   }
   if (extension == ".mat" || extension == ".MAT") {
-    throw std::invalid_argument{"MAT loading requires a MAT/HDF5 dependency that is not yet configured"};
+    return load_mat(filepath);
   }
   throw std::invalid_argument{"Unsupported file format: expected .csv or .mat"};
 }
@@ -370,6 +627,82 @@ LoadedData RingDownDataLoader::load_csv(const std::string& filepath) {
     sample -= sample_mean;
   }
   return LoadedData{time, samples, {}, "CSV"};
+}
+
+LoadedData RingDownDataLoader::load_mat(const std::string& filepath) {
+  auto file = std::ifstream{filepath, std::ios::binary};
+  if (!file) {
+    throw std::runtime_error{"Could not open MAT file: " + filepath};
+  }
+  auto bytes = std::vector<unsigned char>((std::istreambuf_iterator<char>(file)),
+                                          std::istreambuf_iterator<char>());
+  if (bytes.size() < 136U) {
+    throw std::invalid_argument{"Invalid MAT file structure: file is too small"};
+  }
+  if (bytes[126] != 'I' || bytes[127] != 'M') {
+    throw std::invalid_argument{"Invalid MAT file structure: only little-endian MAT v5 files are supported"};
+  }
+
+  auto cursor = std::size_t{128U};
+  auto moku = std::optional<MatMatrix>{};
+  while (cursor + 8U <= bytes.size()) {
+    auto element = read_mat_element(bytes, cursor, bytes.size());
+    if (element.type == static_cast<std::uint32_t>(MatType::Compressed)) {
+      throw std::invalid_argument{"Invalid MAT file structure: compressed MAT elements are not supported"};
+    }
+    if (element.type != static_cast<std::uint32_t>(MatType::Matrix)) {
+      continue;
+    }
+    auto matrix = parse_mat_matrix(bytes, element);
+    if (matrix.name == "moku") {
+      moku = std::move(matrix);
+      break;
+    }
+  }
+  if (!moku.has_value()) {
+    throw std::invalid_argument{"Invalid MAT file structure: missing moku variable"};
+  }
+
+  const auto& data = struct_field(*moku, "data");
+  if (data.class_type != static_cast<std::uint32_t>(MatClass::Double) || data.rows == 0U || data.columns < 4U) {
+    throw std::invalid_argument{
+        "Invalid MAT file structure: moku.data must be a non-empty 2D array with at least 4 columns"};
+  }
+  if (data.values.size() < data.rows * data.columns) {
+    throw std::invalid_argument{"Invalid MAT file structure: moku.data payload is truncated"};
+  }
+
+  auto time = std::vector<double>(data.rows);
+  auto samples = std::vector<double>(data.rows);
+  auto secondary = std::vector<double>{};
+  if (data.columns > 8U) {
+    secondary.resize(data.rows);
+  }
+
+  for (auto row = std::size_t{0}; row < data.rows; ++row) {
+    time[row] = data.values[row];
+    samples[row] = data.values[3U * data.rows + row];
+    if (!secondary.empty()) {
+      secondary[row] = data.values[8U * data.rows + row];
+    }
+  }
+
+  validate_finite_channel(time, "time", filepath);
+  validate_finite_channel(samples, "phase", filepath);
+  if (!secondary.empty()) {
+    validate_finite_channel(secondary, "V2", filepath);
+  }
+
+  const auto t0 = time.front();
+  for (auto& value : time) {
+    value -= t0;
+  }
+  remove_mean(samples);
+  if (!secondary.empty()) {
+    remove_mean(secondary);
+  }
+
+  return LoadedData{time, samples, secondary, "MAT"};
 }
 
 std::string to_json(const AnalyzerResult& result) {

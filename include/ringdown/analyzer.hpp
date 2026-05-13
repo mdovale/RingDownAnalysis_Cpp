@@ -24,6 +24,7 @@ struct AnalyzerResult {
   std::vector<double> samples;
   std::vector<double> cropped_time;
   std::vector<double> cropped_samples;
+  std::vector<double> secondary_samples;
   double sample_rate_hz{0.0};
   double tau_seed{0.0};
   double tau_estimate{0.0};
@@ -80,6 +81,7 @@ class RingDownDataLoader {
 public:
   [[nodiscard]] static LoadedData load(const std::string& filepath);
   [[nodiscard]] static LoadedData load_csv(const std::string& filepath);
+  [[nodiscard]] static LoadedData load_mat(const std::string& filepath);
 };
 
 [[nodiscard]] std::string to_json(const AnalyzerResult& result);

@@ -59,11 +59,14 @@ def main() -> int:
     import numpy as np  # noqa: PLC0415
     from ringdownanalysis import (  # noqa: PLC0415
         CRLBCalculator,
+        BatchRingDownAnalyzer,
         DFTFrequencyEstimator,
+        MonteCarloAnalyzer,
         NLSFrequencyEstimator,
         RingDownAnalyzer,
         RingDownSignal,
     )
+    from scipy.io import savemat  # noqa: PLC0415
 
     args.output.mkdir(parents=True, exist_ok=True)
 
@@ -106,6 +109,80 @@ def main() -> int:
         crlb_inputs["tau"],
         crlb_inputs["f0"],
     )
+
+    file_signal = RingDownSignal(f0=6.25, fs=125.0, N=1024, A0=0.75, snr_db=70.0, Q=1500.0)
+    t_file, x_file, file_phi0 = file_signal.generate(phi0=0.2, rng=np.random.default_rng(7))
+    csv_path = args.output / "moku_small.csv"
+    csv_lines = ["% Moku fixture generated from Python reference\n", "time,a,b,phase\n"]
+    csv_lines.extend(f"{ti:.17g},0,0,{xi:.17g}\n" for ti, xi in zip(t_file, x_file))
+    csv_path.write_text("".join(csv_lines), encoding="utf-8")
+
+    mat_path = args.output / "moku_small.mat"
+    moku_data = np.column_stack(
+        [
+            t_file,
+            np.zeros_like(t_file),
+            np.zeros_like(t_file),
+            x_file,
+            np.zeros_like(t_file),
+            np.zeros_like(t_file),
+            np.zeros_like(t_file),
+            np.zeros_like(t_file),
+            x_file * 0.5,
+        ]
+    )
+    moku = np.empty((1, 1), dtype=[("data", object)])
+    moku[0, 0]["data"] = moku_data
+    savemat(mat_path, {"moku": moku})
+
+    csv_analysis = analyzer.analyze_file(str(csv_path), max_tau_multiplier=1.0, max_nfev=250)
+    mat_analysis = analyzer.analyze_file(str(mat_path), max_tau_multiplier=1.0, max_nfev=250)
+
+    batch = BatchRingDownAnalyzer()
+    batch_process = batch.process_files([str(csv_path), str(mat_path)], verbose=False, n_jobs=1)
+    batch.calculate_q_factors()
+    batch_summary = batch.get_summary_table()
+    batch_consistency = batch.consistency_analysis()
+    batch_uncertainty = batch.crlb_comparison_analysis()
+
+    mc = MonteCarloAnalyzer().run(
+        f0=5.0,
+        fs=100.0,
+        N=512,
+        A0=1.0,
+        snr_db=50.0,
+        Q=1000.0,
+        n_mc=4,
+        seed=11,
+    )
+
+    def analysis_scalars(result: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: _finite_scalar(value)
+            for key, value in result.items()
+            if key
+            in {
+                "fs",
+                "tau_seed",
+                "tau_full_init",
+                "tau_est",
+                "tau_nls",
+                "tau_dft",
+                "tau_model",
+                "f_nls",
+                "f_dft",
+                "Q_nls",
+                "Q_dft",
+                "A0_est",
+                "sigma_est",
+                "plugin_crlb_var_f",
+                "plugin_crlb_std_f",
+                "N",
+                "N_crop",
+                "T",
+                "T_crop",
+            }
+        }
 
     case = {
         "name": "synthetic_5hz_seed42",
@@ -159,30 +236,55 @@ def main() -> int:
             },
         },
         "array_analysis": {
-            key: _finite_scalar(value)
-            for key, value in analysis.items()
-            if key
-            in {
-                "fs",
-                "tau_seed",
-                "tau_full_init",
-                "tau_est",
-                "tau_nls",
-                "tau_dft",
-                "tau_model",
-                "f_nls",
-                "f_dft",
-                "Q_nls",
-                "Q_dft",
-                "A0_est",
-                "sigma_est",
-                "plugin_crlb_var_f",
-                "plugin_crlb_std_f",
-                "N",
-                "N_crop",
-                "T",
-                "T_crop",
-            }
+            **analysis_scalars(analysis),
+        },
+        "file_fixtures": {
+            "csv": {
+                "path": "moku_small.csv",
+                "parameters": {
+                    "f0": file_signal.f0,
+                    "fs": file_signal.fs,
+                    "N": file_signal.N,
+                    "A0": file_signal.A0,
+                    "snr_db": file_signal.snr_db,
+                    "Q": file_signal.Q,
+                    "tau": file_signal.tau,
+                    "sigma": file_signal.sigma,
+                    "phi0": file_phi0,
+                },
+                "analysis": analysis_scalars(csv_analysis),
+            },
+            "mat": {
+                "path": "moku_small.mat",
+                "analysis": analysis_scalars(mat_analysis),
+                "v2_first": float((x_file * 0.5 - np.mean(x_file * 0.5))[0]),
+            },
+        },
+        "batch": {
+            "success_count": len(batch_process.results),
+            "failure_count": len(batch_process.failed_files),
+            "summary_rows": len(batch_summary["data"]),
+            "q_values": [float(value) for value in batch.get_q_factor_statistics()["values"]],
+            "nls_mean": float(batch_consistency["nls_mean"]),
+            "dft_mean": float(batch_consistency["dft_mean"]),
+            "frequency_diff_count": len(batch_uncertainty["frequency_diffs"]),
+        },
+        "monte_carlo": {
+            "parameters": {
+                "f0": mc["f0"],
+                "fs": mc["fs"],
+                "N": mc["N"],
+                "Q": mc["Q"],
+                "tau": mc["tau"],
+                "snr_db": mc["snr_db"],
+            },
+            "crlb_std": mc["crlb_std"],
+            "crlb_std_q": mc["crlb_std_q"],
+            "errors_nls": mc["errors_nls"].tolist(),
+            "errors_dft": mc["errors_dft"].tolist(),
+            "errors_q_nls": mc["errors_q_nls"].tolist(),
+            "errors_q_dft": mc["errors_q_dft"].tolist(),
+            "stats": mc["stats"],
         },
     }
 
