@@ -7,6 +7,10 @@ This follows the first implementation pass from
 
 ## Current Status
 
+Superseded status note: the remaining items listed in this handoff were
+implemented in the follow-up commits after this document was created. See
+`docs/RESULTS_AND_PERFORMANCE.md` for the current validation record.
+
 Implemented and committed on `main`:
 
 - Python-generated JSON goldens for deterministic signal, CRLB, estimator, and

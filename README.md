@@ -20,11 +20,12 @@ This repository contains the first C++ vertical slice of the Python
 - deterministic Monte Carlo runner
 - JSON export for analysis results
 - fixture-backed CTest coverage against Python-generated numerical goldens
-- benchmark smoke target
+- representative benchmark target
 - CI workflow for macOS and Linux
 
-MAT-file loading and a full performance pass are intentionally deferred until a
-MAT/HDF5 dependency strategy is selected.
+Real CSV and MAT files from the Python reference checkout have been analyzed
+from the C++ CLI. See `docs/RESULTS_AND_PERFORMANCE.md` for commands, measured
+outputs, and Python/Jupyter JSON inspection examples.
 
 ## Build
 
@@ -52,5 +53,8 @@ compare behavior, but do not vendor it into this repository.
 
 ```bash
 build/dev/apps/ringdown_cli analyze path/to/data.csv
+build/dev/apps/ringdown_cli analyze path/to/data.mat
+build/dev/apps/ringdown_cli batch path/to/a.csv path/to/b.mat
+build/dev/apps/ringdown_cli monte-carlo 100 100000 8
 build/dev/apps/ringdown_cli monte-carlo-smoke
 ```
