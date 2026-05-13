@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <cmath>
 #include <future>
+#include <iomanip>
 #include <limits>
 #include <numeric>
 #include <optional>
+#include <sstream>
 #include <utility>
 
 namespace ringdown {
@@ -39,6 +41,22 @@ struct TrialResult {
   std::optional<double> nls_q_error;
   std::optional<double> dft_q_error;
 };
+
+void write_vector(std::ostringstream& out, const std::vector<double>& values) {
+  out << '[';
+  for (auto index = std::size_t{0}; index < values.size(); ++index) {
+    if (index != 0U) {
+      out << ", ";
+    }
+    out << values[index];
+  }
+  out << ']';
+}
+
+void write_stats(std::ostringstream& out, const ErrorStatistics& stats) {
+  out << "{\"mean\": " << stats.mean << ", \"std\": " << stats.standard_deviation
+      << ", \"rmse\": " << stats.rmse << '}';
+}
 
 } // namespace
 
@@ -127,6 +145,48 @@ MonteCarloResult MonteCarloAnalyzer::run(const MonteCarloOptions& options) const
   result.nls_q_statistics = statistics(result.nls_q_errors);
   result.dft_q_statistics = statistics(result.dft_q_errors);
   return result;
+}
+
+std::string to_json(const MonteCarloResult& result) {
+  auto out = std::ostringstream{};
+  out << std::setprecision(17);
+  out << "{\n";
+  out << "  \"f0\": " << result.frequency_hz << ",\n";
+  out << "  \"Q\": " << result.quality_factor << ",\n";
+  out << "  \"tau\": " << result.tau << ",\n";
+  out << "  \"fs\": " << result.sample_rate_hz << ",\n";
+  out << "  \"N\": " << result.sample_count << ",\n";
+  out << "  \"snr_db\": " << result.snr_db << ",\n";
+  out << "  \"crlb_std\": " << result.crlb_std_f << ",\n";
+  out << "  \"crlb_std_q\": " << result.crlb_std_q << ",\n";
+  out << "  \"errors_nls\": ";
+  write_vector(out, result.nls_frequency_errors);
+  out << ",\n";
+  out << "  \"errors_dft\": ";
+  write_vector(out, result.dft_frequency_errors);
+  out << ",\n";
+  out << "  \"errors_q_nls\": ";
+  write_vector(out, result.nls_q_errors);
+  out << ",\n";
+  out << "  \"errors_q_dft\": ";
+  write_vector(out, result.dft_q_errors);
+  out << ",\n";
+  out << "  \"stats\": {\n";
+  out << "    \"nls\": ";
+  write_stats(out, result.nls_statistics);
+  out << ",\n";
+  out << "    \"dft\": ";
+  write_stats(out, result.dft_statistics);
+  out << ",\n";
+  out << "    \"q_nls\": ";
+  write_stats(out, result.nls_q_statistics);
+  out << ",\n";
+  out << "    \"q_dft\": ";
+  write_stats(out, result.dft_q_statistics);
+  out << "\n";
+  out << "  }\n";
+  out << "}\n";
+  return out.str();
 }
 
 } // namespace ringdown

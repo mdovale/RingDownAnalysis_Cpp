@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 #include <ringdown/crlb.hpp>
@@ -52,5 +53,7 @@ private:
   NLSFrequencyEstimator nls_estimator_;
   DFTFrequencyEstimator dft_estimator_;
 };
+
+[[nodiscard]] std::string to_json(const MonteCarloResult& result);
 
 } // namespace ringdown

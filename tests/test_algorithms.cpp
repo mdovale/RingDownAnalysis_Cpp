@@ -228,6 +228,9 @@ RINGDOWN_TEST(batch_workflow_matches_pipeline_fixture) {
 }
 
 RINGDOWN_TEST(monte_carlo_runs_deterministically) {
+  const auto text = fixture_text();
+  const auto mc = find_key(text, "monte_carlo");
+  const auto python_nls_errors = extract_array(text, "errors_nls", mc);
   auto options = ringdown::MonteCarloOptions{};
   options.signal.sample_count = 256U;
   options.trial_count = 3U;
@@ -241,4 +244,13 @@ RINGDOWN_TEST(monte_carlo_runs_deterministically) {
   if (!first.dft_frequency_errors.empty()) {
     require_near(first.dft_frequency_errors.front(), second.dft_frequency_errors.front(), 0.0, "DFT seed");
   }
+
+  auto fixture_options = ringdown::MonteCarloOptions{};
+  fixture_options.signal.sample_count = static_cast<std::size_t>(extract_number(text, "N", find_key(text, "parameters", mc)));
+  fixture_options.trial_count = python_nls_errors.size();
+  fixture_options.seed = 11U;
+  const auto fixture_result = ringdown::MonteCarloAnalyzer{}.run(fixture_options);
+  ringdown::test::require(fixture_result.nls_frequency_errors.size() == python_nls_errors.size(),
+                          "Monte Carlo fixture trial count");
+  ringdown::test::require(!ringdown::to_json(fixture_result).empty(), "Monte Carlo JSON export");
 }

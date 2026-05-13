@@ -26,6 +26,21 @@ int main(int argc, char** argv) {
       return result.has_failures() ? 1 : 0;
     }
 
+    if (argc >= 2 && std::string_view{argv[1]} == "monte-carlo") {
+      auto options = ringdown::MonteCarloOptions{};
+      if (argc >= 3) {
+        options.trial_count = static_cast<std::size_t>(std::stoull(argv[2]));
+      }
+      if (argc >= 4) {
+        options.signal.sample_count = static_cast<std::size_t>(std::stoull(argv[3]));
+      }
+      if (argc >= 5) {
+        options.worker_count = static_cast<std::size_t>(std::stoull(argv[4]));
+      }
+      std::cout << ringdown::to_json(ringdown::MonteCarloAnalyzer{}.run(options));
+      return 0;
+    }
+
     if (argc == 2 && std::string_view{argv[1]} == "monte-carlo-smoke") {
       auto options = ringdown::MonteCarloOptions{};
       options.signal.sample_count = 512U;
@@ -40,6 +55,7 @@ int main(int argc, char** argv) {
               << "Usage:\n"
               << "  ringdown_cli analyze <file.csv>\n"
               << "  ringdown_cli batch <file.csv|file.mat>...\n"
+              << "  ringdown_cli monte-carlo [trials] [samples] [workers]\n"
               << "  ringdown_cli monte-carlo-smoke\n";
     return 0;
   } catch (const std::exception& error) {
