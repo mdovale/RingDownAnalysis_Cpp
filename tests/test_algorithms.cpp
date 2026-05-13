@@ -299,6 +299,10 @@ RINGDOWN_TEST(estimators_track_python_fixture_signal) {
   require_near(dft.frequency_hz, dft_expected, 5.0e-2, "DFT frequency");
   ringdown::test::require(nls.tau.has_value(), "NLS should return tau");
   ringdown::test::require(dft.tau.has_value(), "DFT should return tau");
+  ringdown::test::require(nls.evaluations.has_value() && *nls.evaluations > 0U,
+                          "NLS should report evaluation count");
+  ringdown::test::require(dft.evaluations.has_value() && *dft.evaluations > 0U,
+                          "DFT tau fit should report evaluation count");
 }
 
 RINGDOWN_TEST(analyzer_runs_array_workflow) {

@@ -60,7 +60,9 @@ public:
 
   [[nodiscard]] double estimate_tau(const std::vector<double>& time,
                                     const std::vector<double>& samples,
-                                    double sample_rate_hz) const;
+                                    double sample_rate_hz,
+                                    std::optional<double> tau_initial = std::nullopt,
+                                    std::optional<InitialParameters> initial = std::nullopt) const;
   [[nodiscard]] NoiseEstimate estimate_noise_parameters(const std::vector<double>& time,
                                                        const std::vector<double>& samples,
                                                        double tau_model,

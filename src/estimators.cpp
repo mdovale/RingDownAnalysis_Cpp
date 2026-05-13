@@ -15,7 +15,9 @@ namespace {
 
 constexpr auto kGoldenRatioConjugate = 0.6180339887498948482;
 constexpr auto kGoldenSearchIterations = std::size_t{32U};
-constexpr auto kAlternatingFitIterations = std::size_t{3U};
+constexpr auto kNlsMaxEvaluations = std::size_t{80U};
+constexpr auto kNlsRelativeTolerance = 1.0e-10;
+constexpr auto kNlsStepTolerance = 1.0e-9;
 
 [[nodiscard]] double mean(const std::vector<double>& values) {
   return std::accumulate(values.begin(), values.end(), 0.0) / static_cast<double>(values.size());
@@ -266,6 +268,21 @@ struct LinearFit {
   bool success{false};
 };
 
+struct BoundedNlsFit {
+  double frequency_hz{0.0};
+  double tau{0.0};
+  double rss{std::numeric_limits<double>::infinity()};
+  bool success{false};
+  bool converged{false};
+  std::size_t evaluations{0U};
+};
+
+struct NlsEvaluation {
+  double rss{std::numeric_limits<double>::infinity()};
+  std::array<std::array<double, 5>, 5> normal{};
+  std::array<double, 5> gradient{};
+};
+
 [[nodiscard]] std::optional<std::array<double, 3>> solve_3x3(std::array<std::array<double, 4>, 3> matrix) {
   for (auto col = std::size_t{0}; col < 3U; ++col) {
     auto pivot = col;
@@ -295,6 +312,44 @@ struct LinearFit {
     }
   }
   return std::array<double, 3>{matrix[0][3], matrix[1][3], matrix[2][3]};
+}
+
+[[nodiscard]] std::optional<std::array<double, 5>> solve_linear_system(
+    std::array<std::array<double, 6>, 5> matrix,
+    std::size_t dimension) {
+  for (auto col = std::size_t{0}; col < dimension; ++col) {
+    auto pivot = col;
+    for (auto row = col + 1U; row < dimension; ++row) {
+      if (std::abs(matrix[row][col]) > std::abs(matrix[pivot][col])) {
+        pivot = row;
+      }
+    }
+    if (std::abs(matrix[pivot][col]) < 1.0e-24) {
+      return std::nullopt;
+    }
+    if (pivot != col) {
+      std::swap(matrix[pivot], matrix[col]);
+    }
+    const auto scale = matrix[col][col];
+    for (auto item = col; item <= dimension; ++item) {
+      matrix[col][item] /= scale;
+    }
+    for (auto row = std::size_t{0}; row < dimension; ++row) {
+      if (row == col) {
+        continue;
+      }
+      const auto factor = matrix[row][col];
+      for (auto item = col; item <= dimension; ++item) {
+        matrix[row][item] -= factor * matrix[col][item];
+      }
+    }
+  }
+
+  auto solution = std::array<double, 5>{};
+  for (auto index = std::size_t{0}; index < dimension; ++index) {
+    solution[index] = matrix[index][dimension];
+  }
+  return solution;
 }
 
 [[nodiscard]] LinearFit fit_fixed_frequency_tau(const std::vector<double>& samples,
@@ -348,13 +403,20 @@ struct LinearFit {
 }
 
 template <typename Function>
-[[nodiscard]] double minimize_golden(double lower, double upper, Function objective, std::size_t iterations) {
+[[nodiscard]] double minimize_golden(double lower,
+                                    double upper,
+                                    Function objective,
+                                    std::size_t iterations,
+                                    std::size_t* evaluations = nullptr) {
   auto left = lower;
   auto right = upper;
   auto c = right - kGoldenRatioConjugate * (right - left);
   auto d = left + kGoldenRatioConjugate * (right - left);
   auto fc = objective(c);
   auto fd = objective(d);
+  if (evaluations != nullptr) {
+    *evaluations += 2U;
+  }
 
   for (auto iteration = std::size_t{0}; iteration < iterations; ++iteration) {
     if (fc < fd) {
@@ -369,6 +431,9 @@ template <typename Function>
       fc = fd;
       d = left + kGoldenRatioConjugate * (right - left);
       fd = objective(d);
+    }
+    if (evaluations != nullptr) {
+      ++(*evaluations);
     }
   }
   return (left + right) / 2.0;
@@ -390,6 +455,221 @@ template <typename Function>
   return std::clamp(guess, lower * 1.01, upper * 0.99);
 }
 
+[[nodiscard]] double wrap_phase(double phase) {
+  return std::atan2(std::sin(phase), std::cos(phase));
+}
+
+[[nodiscard]] bool frequency_sanity_passes(double frequency_hz, double initial_frequency_hz, double sample_rate_hz) {
+  if (!std::isfinite(frequency_hz) || frequency_hz < 0.0 || frequency_hz > 0.5 * sample_rate_hz) {
+    return false;
+  }
+  if (initial_frequency_hz <= 0.0) {
+    return true;
+  }
+  return std::abs(frequency_hz - initial_frequency_hz) <= 0.5 * initial_frequency_hz;
+}
+
+[[nodiscard]] InitialParameters sanitize_initial_parameters(const std::vector<double>& samples,
+                                                           double sample_rate_hz,
+                                                           InitialParameters initial) {
+  if (!std::isfinite(initial.frequency_hz) || initial.frequency_hz < 0.0) {
+    initial.frequency_hz = sample_rate_hz / static_cast<double>(std::max<std::size_t>(samples.size(), 2U));
+  } else {
+    initial.frequency_hz = std::clamp(initial.frequency_hz, 0.0, 0.5 * sample_rate_hz);
+  }
+  initial.phase_rad = std::isfinite(initial.phase_rad) ? wrap_phase(initial.phase_rad) : 0.0;
+  initial.amplitude = std::isfinite(initial.amplitude) ? std::abs(initial.amplitude) : 0.0;
+  initial.amplitude = std::max(initial.amplitude, amplitude_floor(samples));
+  initial.offset = std::isfinite(initial.offset) ? initial.offset : mean(samples);
+  return initial;
+}
+
+[[nodiscard]] NlsEvaluation evaluate_nls(const std::vector<double>& samples,
+                                        double sample_rate_hz,
+                                        const std::array<double, 5>& parameters,
+                                        std::optional<double> known_tau) {
+  auto evaluation = NlsEvaluation{};
+  const auto estimate_tau = !known_tau.has_value();
+  const auto dimension = estimate_tau ? std::size_t{5U} : std::size_t{4U};
+  const auto amplitude = parameters[0];
+  const auto frequency_hz = parameters[1];
+  const auto phase = parameters[2];
+  const auto tau = estimate_tau ? parameters[3] : *known_tau;
+  const auto offset = parameters[dimension - 1U];
+
+  if (!std::isfinite(amplitude) || amplitude < 0.0 || !std::isfinite(frequency_hz) ||
+      frequency_hz < 0.0 || !std::isfinite(phase) || !std::isfinite(tau) || tau <= 0.0 ||
+      !std::isfinite(offset)) {
+    return evaluation;
+  }
+
+  evaluation.rss = 0.0;
+  const auto dt = 1.0 / sample_rate_hz;
+  const auto envelope_step = std::exp(-dt / tau);
+  const auto angle_step = 2.0 * std::numbers::pi * frequency_hz * dt;
+  const auto cos_step = std::cos(angle_step);
+  const auto sin_step = std::sin(angle_step);
+  auto envelope = 1.0;
+  auto cos_value = std::cos(phase);
+  auto sin_value = std::sin(phase);
+  auto time = 0.0;
+
+  for (const auto sample : samples) {
+    const auto model = amplitude * envelope * cos_value + offset;
+    const auto residual = model - sample;
+    evaluation.rss += residual * residual;
+
+    auto jacobian = std::array<double, 5>{};
+    jacobian[0] = envelope * cos_value;
+    jacobian[1] = -amplitude * envelope * sin_value * 2.0 * std::numbers::pi * time;
+    jacobian[2] = -amplitude * envelope * sin_value;
+    if (estimate_tau) {
+      jacobian[3] = amplitude * envelope * cos_value * time / (tau * tau);
+      jacobian[4] = 1.0;
+    } else {
+      jacobian[3] = 1.0;
+    }
+
+    for (auto row = std::size_t{0}; row < dimension; ++row) {
+      evaluation.gradient[row] += jacobian[row] * residual;
+      for (auto col = std::size_t{0}; col < dimension; ++col) {
+        evaluation.normal[row][col] += jacobian[row] * jacobian[col];
+      }
+    }
+
+    const auto next_cos = cos_value * cos_step - sin_value * sin_step;
+    const auto next_sin = sin_value * cos_step + cos_value * sin_step;
+    cos_value = next_cos;
+    sin_value = next_sin;
+    envelope *= envelope_step;
+    time += dt;
+  }
+
+  return evaluation;
+}
+
+[[nodiscard]] double scaled_gradient_norm(const NlsEvaluation& evaluation, std::size_t dimension) {
+  auto result = 0.0;
+  for (auto index = std::size_t{0}; index < dimension; ++index) {
+    const auto scale = std::sqrt(std::max(evaluation.normal[index][index], 1.0e-24));
+    result = std::max(result, std::abs(evaluation.gradient[index]) / scale);
+  }
+  return result;
+}
+
+[[nodiscard]] BoundedNlsFit fit_bounded_nls(const std::vector<double>& samples,
+                                           double sample_rate_hz,
+                                           std::optional<double> known_tau,
+                                           std::optional<double> tau_initial,
+                                           InitialParameters raw_initial) {
+  const auto initial = sanitize_initial_parameters(samples, sample_rate_hz, raw_initial);
+  const auto estimate_tau = !known_tau.has_value();
+  const auto dimension = estimate_tau ? std::size_t{5U} : std::size_t{4U};
+  const auto df = sample_rate_hz / static_cast<double>(samples.size());
+  const auto f_low = std::max(0.0, initial.frequency_hz - std::max(0.2 * initial.frequency_hz, 2.0 * df));
+  const auto f_high = std::min(0.5 * sample_rate_hz,
+                               initial.frequency_hz + std::max(0.2 * initial.frequency_hz, 2.0 * df));
+  const auto amp_upper = std::max(10.0 * initial.amplitude, amplitude_floor(samples) * 10.0);
+
+  auto tau_lower = 0.0;
+  auto tau_upper = 0.0;
+  auto tau = known_tau.value_or(sanitize_tau_guess(tau_initial, sample_rate_hz, samples.size(), tau_lower, tau_upper));
+  if (known_tau.has_value()) {
+    tau_lower = *known_tau;
+    tau_upper = *known_tau;
+  }
+
+  auto lower = std::array<double, 5>{0.0, f_low, -std::numbers::pi, tau_lower,
+                                     -std::numeric_limits<double>::infinity()};
+  auto upper = std::array<double, 5>{amp_upper, f_high, std::numbers::pi, tau_upper,
+                                     std::numeric_limits<double>::infinity()};
+  auto parameters = std::array<double, 5>{initial.amplitude,
+                                          std::clamp(initial.frequency_hz, f_low, f_high),
+                                          initial.phase_rad,
+                                          tau,
+                                          initial.offset};
+  if (known_tau.has_value()) {
+    lower[3] = -std::numeric_limits<double>::infinity();
+    upper[3] = std::numeric_limits<double>::infinity();
+    parameters[3] = initial.offset;
+  }
+
+  auto current = evaluate_nls(samples, sample_rate_hz, parameters, known_tau);
+  auto evaluations = std::size_t{1U};
+  if (!std::isfinite(current.rss)) {
+    return BoundedNlsFit{parameters[1], tau, current.rss, false, false, evaluations};
+  }
+
+  auto lambda = 1.0e-3;
+  auto accepted_step = false;
+  auto converged = scaled_gradient_norm(current, dimension) < 1.0e-8;
+
+  while (!converged && evaluations < kNlsMaxEvaluations) {
+    auto system = std::array<std::array<double, 6>, 5>{};
+    for (auto row = std::size_t{0}; row < dimension; ++row) {
+      for (auto col = std::size_t{0}; col < dimension; ++col) {
+        system[row][col] = current.normal[row][col];
+      }
+      system[row][row] += lambda * std::max(current.normal[row][row], 1.0);
+      system[row][dimension] = -current.gradient[row];
+    }
+
+    const auto step = solve_linear_system(system, dimension);
+    if (!step.has_value()) {
+      lambda *= 10.0;
+      if (lambda > 1.0e24) {
+        break;
+      }
+      continue;
+    }
+
+    auto trial_parameters = parameters;
+    auto max_scaled_step = 0.0;
+    auto step_is_finite = true;
+    for (auto index = std::size_t{0}; index < dimension; ++index) {
+      if (!std::isfinite((*step)[index])) {
+        step_is_finite = false;
+        break;
+      }
+      trial_parameters[index] += (*step)[index];
+      if (std::isfinite(lower[index]) || std::isfinite(upper[index])) {
+        trial_parameters[index] = std::clamp(trial_parameters[index], lower[index], upper[index]);
+      }
+      const auto scale = std::max({std::abs(parameters[index]), std::abs(trial_parameters[index]), 1.0});
+      max_scaled_step = std::max(max_scaled_step, std::abs(trial_parameters[index] - parameters[index]) / scale);
+    }
+    if (!step_is_finite) {
+      lambda *= 10.0;
+      continue;
+    }
+
+    const auto trial = evaluate_nls(samples, sample_rate_hz, trial_parameters, known_tau);
+    ++evaluations;
+    if (std::isfinite(trial.rss) && trial.rss < current.rss) {
+      const auto relative_improvement = (current.rss - trial.rss) / std::max(current.rss, 1.0);
+      parameters = trial_parameters;
+      current = trial;
+      accepted_step = true;
+      lambda = std::max(lambda * 0.3, 1.0e-12);
+      converged = relative_improvement < kNlsRelativeTolerance || max_scaled_step < kNlsStepTolerance ||
+                  scaled_gradient_norm(current, dimension) < 1.0e-8;
+    } else {
+      lambda *= 10.0;
+      if (lambda > 1.0e24) {
+        break;
+      }
+    }
+  }
+
+  const auto fitted_tau = estimate_tau ? parameters[3] : *known_tau;
+  return BoundedNlsFit{parameters[1],
+                       fitted_tau,
+                       current.rss,
+                       accepted_step || converged,
+                       converged,
+                       evaluations};
+}
+
 [[nodiscard]] EstimationResult estimate_with_separable_nls(const std::vector<double>& samples,
                                                            double sample_rate_hz,
                                                            std::optional<double> known_tau,
@@ -397,7 +677,8 @@ template <typename Function>
                                                            std::optional<InitialParameters> initial) {
   validate_signal_input(samples);
   validate_sample_rate(sample_rate_hz);
-  const auto init = initial.value_or(estimate_initial_parameters_from_dft(samples, sample_rate_hz));
+  const auto init = sanitize_initial_parameters(
+      samples, sample_rate_hz, initial.value_or(estimate_initial_parameters_from_dft(samples, sample_rate_hz)));
 
   if (!has_resolved_ac_content(samples)) {
     const auto q = known_tau.has_value() ? std::optional<double>{std::numbers::pi * init.frequency_hz * *known_tau}
@@ -411,49 +692,8 @@ template <typename Function>
                             0U};
   }
 
-  const auto df = sample_rate_hz / static_cast<double>(samples.size());
-  const auto f_low = std::max(0.0, init.frequency_hz - std::max(0.2 * init.frequency_hz, 2.0 * df));
-  const auto f_high = std::min(0.5 * sample_rate_hz,
-                               init.frequency_hz + std::max(0.2 * init.frequency_hz, 2.0 * df));
-
-  auto tau_lower = 0.0;
-  auto tau_upper = 0.0;
-  auto tau = known_tau.value_or(sanitize_tau_guess(tau_initial, sample_rate_hz, samples.size(), tau_lower, tau_upper));
-  if (known_tau.has_value()) {
-    tau_lower = *known_tau;
-    tau_upper = *known_tau;
-  }
-
-  auto frequency = init.frequency_hz;
-  const auto optimize_frequency = [&]() {
-    frequency = minimize_golden(
-        f_low,
-        f_high,
-        [&](double candidate) { return fit_fixed_frequency_tau(samples, sample_rate_hz, candidate, tau).rss; },
-        kGoldenSearchIterations);
-  };
-  const auto optimize_tau = [&]() {
-    tau = minimize_golden(
-        tau_lower,
-        tau_upper,
-        [&](double candidate) {
-          return fit_fixed_frequency_tau(samples, sample_rate_hz, frequency, candidate).rss;
-        },
-        kGoldenSearchIterations);
-  };
-
-  if (known_tau.has_value()) {
-    optimize_frequency();
-  } else {
-    for (auto iteration = std::size_t{0}; iteration < kAlternatingFitIterations; ++iteration) {
-      optimize_frequency();
-      optimize_tau();
-    }
-    optimize_frequency();
-  }
-
-  const auto fit = fit_fixed_frequency_tau(samples, sample_rate_hz, frequency, tau);
-  if (!fit.success || !std::isfinite(frequency) || frequency < 0.0 || frequency > 0.5 * sample_rate_hz) {
+  const auto fit = fit_bounded_nls(samples, sample_rate_hz, known_tau, tau_initial, init);
+  if (!fit.success || !frequency_sanity_passes(fit.frequency_hz, init.frequency_hz, sample_rate_hz)) {
     return EstimationResult{init.frequency_hz,
                             known_tau,
                             known_tau.has_value()
@@ -461,27 +701,28 @@ template <typename Function>
                                 : std::nullopt,
                             false,
                             true,
-                            "Separable NLS fit failed frequency sanity check",
-                            std::nullopt};
+                            "Bounded NLS fit failed frequency sanity check",
+                            fit.evaluations};
   }
 
-  if (!known_tau.has_value() && (!std::isfinite(tau) || tau <= 0.0 || tau < tau_lower || tau > tau_upper)) {
-    return EstimationResult{frequency,
+  if (!known_tau.has_value() && (!std::isfinite(fit.tau) || fit.tau <= 0.0)) {
+    return EstimationResult{fit.frequency_hz,
                             std::nullopt,
                             std::nullopt,
                             false,
                             true,
-                            "Separable NLS fit failed tau sanity check",
-                            std::nullopt};
+                            "Bounded NLS fit failed tau sanity check",
+                            fit.evaluations};
   }
 
-  return EstimationResult{frequency,
-                          tau,
-                          std::numbers::pi * frequency * tau,
+  return EstimationResult{fit.frequency_hz,
+                          fit.tau,
+                          std::numbers::pi * fit.frequency_hz * fit.tau,
                           true,
                           false,
-                          "Separable nonlinear least-squares fit converged",
-                          std::nullopt};
+                          fit.converged ? "Analytic bounded nonlinear least-squares fit converged"
+                                        : "Analytic bounded nonlinear least-squares fit reached evaluation limit",
+                          fit.evaluations};
 }
 
 } // namespace
@@ -510,22 +751,26 @@ EstimationResult DFTFrequencyEstimator::estimate_full(const std::vector<double>&
                                 samples.size(),
                                 tau_lower,
                                 tau_upper);
+  auto tau_evaluations = std::size_t{0U};
   tau = minimize_golden(
       tau_lower,
       tau_upper,
       [&](double candidate) {
         return fit_fixed_frequency_tau(samples, sample_rate_hz, result.frequency_hz, candidate).rss;
       },
-      kGoldenSearchIterations);
+      kGoldenSearchIterations,
+      &tau_evaluations);
   if (!std::isfinite(tau) || tau <= 0.0) {
     result.success = false;
     result.used_fallback = true;
     result.message = "DFT tau fit failed tau sanity check";
+    result.evaluations = tau_evaluations;
     return result;
   }
 
   result.tau = tau;
   result.quality_factor = std::numbers::pi * result.frequency_hz * tau;
+  result.evaluations = tau_evaluations;
   return result;
 }
 
@@ -570,13 +815,17 @@ double estimate_initial_tau_from_envelope(const std::vector<double>& samples, do
   const auto window_count = samples.size() / window_size;
   auto rms_values = std::vector<double>(window_count);
   for (auto window = std::size_t{0}; window < window_count; ++window) {
-    auto chunk = std::vector<double>{};
-    chunk.reserve(window_size);
     const auto start = window * window_size;
+    auto sum = 0.0;
+    auto sum_squares = 0.0;
     for (auto offset = std::size_t{0}; offset < window_size; ++offset) {
-      chunk.push_back(samples[start + offset]);
+      const auto sample = samples[start + offset];
+      sum += sample;
+      sum_squares += sample * sample;
     }
-    rms_values[window] = standard_deviation(chunk);
+    const auto count = static_cast<double>(window_size);
+    const auto avg = sum / count;
+    rms_values[window] = std::sqrt(std::max(0.0, (sum_squares / count) - (avg * avg)));
   }
 
   const auto peak = *std::max_element(rms_values.begin(), rms_values.end());

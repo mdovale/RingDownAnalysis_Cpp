@@ -719,7 +719,7 @@ AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& time,
   const auto sample_rate_hz = validate_uniform_timebase(normalized_time);
   const auto initial = estimate_initial_parameters_from_dft(samples, sample_rate_hz);
   const auto tau_seed = estimate_initial_tau_from_envelope(samples, sample_rate_hz);
-  auto tau_estimate = estimate_tau(normalized_time, samples, sample_rate_hz);
+  auto tau_estimate = estimate_tau(normalized_time, samples, sample_rate_hz, tau_seed, initial);
   if (!std::isfinite(tau_estimate) || tau_estimate <= 0.0) {
     tau_estimate = tau_seed;
   }
@@ -781,11 +781,13 @@ AnalyzerResult RingDownAnalyzer::analyze_file(const std::string& filepath,
 
 double RingDownAnalyzer::estimate_tau(const std::vector<double>& time,
                                       const std::vector<double>& samples,
-                                      double sample_rate_hz) const {
+                                      double sample_rate_hz,
+                                      std::optional<double> tau_initial,
+                                      std::optional<InitialParameters> initial) const {
   (void)time;
-  const auto result = NLSFrequencyEstimator{}.estimate_full(
-      samples, sample_rate_hz, estimate_initial_tau_from_envelope(samples, sample_rate_hz));
-  return result.tau.value_or(estimate_initial_tau_from_envelope(samples, sample_rate_hz));
+  const auto tau_seed = tau_initial.value_or(estimate_initial_tau_from_envelope(samples, sample_rate_hz));
+  const auto result = NLSFrequencyEstimator{}.estimate_full(samples, sample_rate_hz, tau_seed, initial);
+  return result.tau.value_or(tau_seed);
 }
 
 NoiseEstimate RingDownAnalyzer::estimate_noise_parameters(const std::vector<double>& time,
@@ -803,11 +805,13 @@ NoiseEstimate RingDownAnalyzer::estimate_noise_parameters(const std::vector<doub
   }
 
   auto normal = std::array<std::array<double, 4>, 3>{};
+  auto sample_sum_squares = 0.0;
   for (auto index = std::size_t{0}; index < samples.size(); ++index) {
     const auto t = time[index] - time.front();
     const auto envelope = std::exp(-t / tau_model);
     const auto angle = 2.0 * std::numbers::pi * frequency_hz * t;
     const auto row = std::array<double, 3>{envelope * std::cos(angle), envelope * std::sin(angle), 1.0};
+    sample_sum_squares += samples[index] * samples[index];
     for (auto lhs = std::size_t{0}; lhs < 3U; ++lhs) {
       for (auto rhs = std::size_t{0}; rhs < 3U; ++rhs) {
         normal[lhs][rhs] += row[lhs] * row[rhs];
@@ -827,16 +831,9 @@ NoiseEstimate RingDownAnalyzer::estimate_noise_parameters(const std::vector<doub
                          "Design matrix is rank-deficient"};
   }
 
-  auto rss = 0.0;
-  for (auto index = std::size_t{0}; index < samples.size(); ++index) {
-    const auto t = time[index] - time.front();
-    const auto envelope = std::exp(-t / tau_model);
-    const auto angle = 2.0 * std::numbers::pi * frequency_hz * t;
-    const auto fitted = (*solution)[0] * envelope * std::cos(angle) +
-                        (*solution)[1] * envelope * std::sin(angle) + (*solution)[2];
-    const auto residual = samples[index] - fitted;
-    rss += residual * residual;
-  }
+  const auto explained_sum_squares = (*solution)[0] * normal[0][3] + (*solution)[1] * normal[1][3] +
+                                     (*solution)[2] * normal[2][3];
+  const auto rss = std::max(0.0, sample_sum_squares - explained_sum_squares);
 
   const auto dof = samples.size() - 3U;
   return NoiseEstimate{std::max(std::hypot((*solution)[0], (*solution)[1]),
