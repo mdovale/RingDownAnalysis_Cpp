@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <future>
 #include <iomanip>
@@ -102,12 +103,29 @@ struct ProcessingSlot {
   std::string error_message;
 };
 
+void report_progress(const BatchProgressCallback& progress,
+                     std::size_t index,
+                     std::size_t total,
+                     const std::string& filepath,
+                     std::string stage,
+                     bool success,
+                     std::chrono::steady_clock::time_point start,
+                     std::string message = {}) {
+  if (!progress) {
+    return;
+  }
+  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - start);
+  progress(BatchProgressEvent{index, total, filepath, std::move(stage), success, elapsed, std::move(message)});
+}
+
 } // namespace
 
 BatchRingDownAnalyzer::BatchRingDownAnalyzer(RingDownAnalyzer analyzer) : analyzer_{std::move(analyzer)} {}
 
 ProcessResult BatchRingDownAnalyzer::process_files(const std::vector<std::string>& filepaths,
-                                                   std::size_t worker_count) {
+                                                   std::size_t worker_count,
+                                                   BatchProgressCallback progress) {
   results_.clear();
   auto failed = std::vector<FailedFile>{};
   if (filepaths.empty()) {
@@ -115,11 +133,23 @@ ProcessResult BatchRingDownAnalyzer::process_files(const std::vector<std::string
   }
 
   if (worker_count <= 1U) {
-    for (const auto& filepath : filepaths) {
+    for (auto index = std::size_t{0}; index < filepaths.size(); ++index) {
+      const auto& filepath = filepaths[index];
+      const auto start = std::chrono::steady_clock::now();
+      report_progress(progress, index, filepaths.size(), filepath, "analyze_file_start", false, start);
       try {
         results_.push_back(analyzer_.analyze_file(filepath));
+        report_progress(progress, index, filepaths.size(), filepath, "analyze_file_done", true, start);
       } catch (const std::exception& error) {
         failed.push_back(FailedFile{filepath, error.what()});
+        report_progress(progress,
+                        index,
+                        filepaths.size(),
+                        filepath,
+                        "analyze_file_failed",
+                        false,
+                        start,
+                        error.what());
       }
     }
     return ProcessResult{results_, failed};
@@ -132,16 +162,27 @@ ProcessResult BatchRingDownAnalyzer::process_files(const std::vector<std::string
   workers.reserve(bounded_worker_count);
 
   for (auto worker = std::size_t{0}; worker < bounded_worker_count; ++worker) {
-    workers.push_back(std::async(std::launch::async, [this, &filepaths, &slots, &next_index] {
+    workers.push_back(std::async(std::launch::async, [this, &filepaths, &slots, &next_index, &progress] {
       while (true) {
         const auto index = next_index.fetch_add(1U);
         if (index >= filepaths.size()) {
           return;
         }
+        const auto start = std::chrono::steady_clock::now();
+        report_progress(progress, index, filepaths.size(), filepaths[index], "analyze_file_start", false, start);
         try {
           slots[index].result = analyzer_.analyze_file(filepaths[index]);
+          report_progress(progress, index, filepaths.size(), filepaths[index], "analyze_file_done", true, start);
         } catch (const std::exception& error) {
           slots[index].error_message = error.what();
+          report_progress(progress,
+                          index,
+                          filepaths.size(),
+                          filepaths[index],
+                          "analyze_file_failed",
+                          false,
+                          start,
+                          error.what());
         }
       }
     }));

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <exception>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -20,6 +22,18 @@ struct ProcessResult {
 
   [[nodiscard]] bool has_failures() const noexcept { return !failed_files.empty(); }
 };
+
+struct BatchProgressEvent {
+  std::size_t index{0};
+  std::size_t total{0};
+  std::string filepath;
+  std::string stage;
+  bool success{false};
+  std::chrono::milliseconds elapsed{0};
+  std::string message;
+};
+
+using BatchProgressCallback = std::function<void(const BatchProgressEvent&)>;
 
 struct SummaryStatistics {
   double mean{0.0};
@@ -78,7 +92,8 @@ public:
   explicit BatchRingDownAnalyzer(RingDownAnalyzer analyzer = RingDownAnalyzer{});
 
   [[nodiscard]] ProcessResult process_files(const std::vector<std::string>& filepaths,
-                                            std::size_t worker_count = 1);
+                                            std::size_t worker_count = 1,
+                                            BatchProgressCallback progress = {});
   [[nodiscard]] std::vector<double> calculate_q_factors() const;
   [[nodiscard]] std::vector<BatchSummaryRow> summary_table() const;
   [[nodiscard]] ConsistencyAnalysis consistency_analysis() const;

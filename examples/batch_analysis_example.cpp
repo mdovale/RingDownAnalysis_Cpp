@@ -1,10 +1,12 @@
 #include <ringdown/ringdown.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -19,6 +21,37 @@ namespace {
     return std::string{value};
   }
   return {};
+}
+
+[[nodiscard]] std::string_view build_type() {
+#ifdef NDEBUG
+  return "Release";
+#else
+  return "Debug";
+#endif
+}
+
+[[nodiscard]] std::string_view compiler_name() {
+#if defined(__clang__)
+  return "Clang";
+#elif defined(__GNUC__)
+  return "GCC";
+#elif defined(_MSC_VER)
+  return "MSVC";
+#else
+  return "unknown";
+#endif
+}
+
+[[nodiscard]] std::string command_line(int argc, char** argv) {
+  auto out = std::ostringstream{};
+  for (auto index = 0; index < argc; ++index) {
+    if (index != 0) {
+      out << ' ';
+    }
+    out << argv[index];
+  }
+  return out.str();
 }
 
 [[nodiscard]] std::string json_escaped_string(const std::string& value) {
@@ -99,6 +132,7 @@ int main(int argc, char** argv) {
     auto worker_count = std::size_t{1U};
     auto max_files = std::optional<std::size_t>{};
     auto fail_on_file_error = false;
+    auto progress_enabled = !getenv_string("RINGDOWN_BATCH_PROGRESS").empty();
 
     for (auto index = 1; index < argc; ++index) {
       const auto arg = std::string_view{argv[index]};
@@ -112,6 +146,8 @@ int main(int argc, char** argv) {
         max_files = static_cast<std::size_t>(std::stoull(argv[++index]));
       } else if (arg == "--fail-on-file-error") {
         fail_on_file_error = true;
+      } else if (arg == "--progress") {
+        progress_enabled = true;
       } else if (arg == "--help" || arg == "-h") {
         std::cout << "Usage: batch_analysis_example [options]\n"
                   << "  --output-dir <path>  default: results/examples/batch_analysis_cpp\n"
@@ -119,7 +155,8 @@ int main(int argc, char** argv) {
                      "RINGDOWN_EXAMPLES_DATA\n"
                   << "  --workers <n>        default: 1\n"
                   << "  --max-files <n>      optional cap after sorting (CSV then MAT)\n"
-                  << "  --fail-on-file-error return nonzero when any file fails\n";
+                  << "  --fail-on-file-error return nonzero when any file fails\n"
+                  << "  --progress           print per-file timing to stderr\n";
         return 0;
       }
     }
@@ -144,7 +181,25 @@ int main(int argc, char** argv) {
     }
 
     auto batch = ringdown::BatchRingDownAnalyzer{};
-    const auto processed = batch.process_files(filepaths, worker_count);
+    auto progress_mutex = std::mutex{};
+    auto progress = ringdown::BatchProgressCallback{};
+    if (progress_enabled) {
+      progress = [&](const ringdown::BatchProgressEvent& event) {
+        auto lock = std::lock_guard<std::mutex>{progress_mutex};
+        std::cerr << "[batch] " << event.stage << " " << (event.index + 1U) << "/" << event.total
+                  << " elapsed_ms=" << event.elapsed.count() << " path=" << event.filepath;
+        if (!event.message.empty()) {
+          std::cerr << " message=" << event.message;
+        }
+        std::cerr << '\n';
+      };
+    }
+
+#ifndef NDEBUG
+    std::cerr << "Warning: Debug build timings are not production performance data.\n";
+#endif
+
+    const auto processed = batch.process_files(filepaths, worker_count, progress);
     const auto report = ringdown::to_json_batch_report(batch, processed);
 
     write_text(output_dir / "batch_report.json", report);
@@ -153,7 +208,17 @@ int main(int argc, char** argv) {
     auto meta = std::ostringstream{};
     meta << "{\n";
     meta << "  \"data_dir\": " << json_escaped_string(data_dir.generic_string()) << ",\n";
+    meta << "  \"build_type\": " << json_escaped_string(std::string{build_type()}) << ",\n";
+    meta << "  \"ndebug\": ";
+#ifdef NDEBUG
+    meta << "true,\n";
+#else
+    meta << "false,\n";
+#endif
+    meta << "  \"compiler\": " << json_escaped_string(std::string{compiler_name()}) << ",\n";
+    meta << "  \"command_line\": " << json_escaped_string(command_line(argc, argv)) << ",\n";
     meta << "  \"worker_count\": " << worker_count << ",\n";
+    meta << "  \"progress_enabled\": " << (progress_enabled ? "true" : "false") << ",\n";
     if (max_files.has_value()) {
       meta << "  \"max_files\": " << *max_files << ",\n";
     }
