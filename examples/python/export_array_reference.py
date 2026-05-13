@@ -59,7 +59,7 @@ def main() -> None:
 
     analyzer = RingDownAnalyzer()
     r_td = analyzer.analyze_array(t, data, max_tau_multiplier=args.max_tau_multiplier)
-    r_fs = analyzer.analyze_array(data, fs=1000.0, max_tau_multiplier=args.max_tau_multiplier)
+    r_fs = analyzer.analyze_array(data=data, fs=1000.0, max_tau_multiplier=args.max_tau_multiplier)
 
     def pack(result: dict) -> dict:
         """JSON-serializable copy (lists instead of ndarray)."""
