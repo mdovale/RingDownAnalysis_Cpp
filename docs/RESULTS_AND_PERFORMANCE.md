@@ -6,7 +6,7 @@ The C++ library now covers the core workflows from the Python reference:
 
 - synthetic ring-down signal generation;
 - CRLB-style frequency and Q diagnostics;
-- DFT and separable least-squares frequency, tau, and Q estimation;
+- DFT and analytic bounded least-squares frequency, tau, and Q estimation;
 - Moku CSV, MATLAB v5 `moku.data`, and single-CSV ZIP loading;
 - array and file analysis;
 - sequential and parallel batch processing with structured summaries;
@@ -121,24 +121,37 @@ build/release/benchmarks/ringdown_benchmark_smoke
 
 Observed C++ timings:
 
-- `signal_generation_10k_ms=0`
-- `dft_estimate_10k_ms=6`
-- `nls_estimate_10k_ms=52`
-- `array_analysis_10k_ms=111`
-- `monte_carlo_8x2048_ms=13`
+- `build_type=Release`
+- `signal_generation_10k_ms=0.125084`
+- `dft_estimate_10k_ms=1.72138`
+- `nls_estimate_10k_ms=1.04163`
+- `stage_initial_dft_10k_ms=0.316666`
+- `stage_envelope_tau_seed_10k_ms=0.010625`
+- `stage_full_record_tau_estimation_10k_ms=1.08054`
+- `stage_cropped_nls_10k_ms=0.961875`
+- `stage_cropped_dft_tau_fit_10k_ms=1.68933`
+- `stage_noise_fit_10k_ms=0.061584`
+- `array_analysis_10k_ms=4.25446`
+- `monte_carlo_8x2048_ms=4.71229`
+- `batch_json_summary_one_result_ms=0.015084`
+- `batch_notebook_json_one_result_ms=11.8216`
+- `csv_load_only_ms=0.110041` on `tests/fixtures/reference/moku_small.csv`
+- `mat_load_only_ms=0.174042` on `tests/fixtures/reference/moku_small.mat`
+- `nls_evaluations=9`
+- `dft_evaluations=34`
 
 Comparable Python reference timings from the local `.venv`:
 
-- `signal_generation_10k_ms=0.128`
-- `dft_estimate_10k_ms=14.529`
-- `nls_estimate_10k_ms=11.217`
-- `array_analysis_10k_ms=24.586`
-- `monte_carlo_8x2048_ms=438.883`
+- `signal_generation_10k_ms=0.163`
+- `dft_estimate_10k_ms=16.910`
+- `nls_estimate_10k_ms=12.513`
+- `array_analysis_10k_ms=26.296`
+- `monte_carlo_8x2048_ms=486.724`
 
-The C++ DFT and Monte Carlo paths are already faster on these workloads. The
-current separable least-squares path prioritizes inspectability and fixture
-coverage over peak speed; it is documented by the benchmark and can be replaced
-with a dedicated optimizer if future profiling requires it.
+The C++ DFT, NLS, array analysis, and Monte Carlo paths are faster than the
+Python reference on this synthetic workload. The benchmark also emits build
+type, compiler, command line, estimator evaluation counts, and stage-level
+timings so Debug results are not mistaken for production measurements.
 
 ## Validation Commands
 
