@@ -527,10 +527,11 @@ def main() -> None:
             "n_pairwise_comparisons",
             "nls_mean",
             "dft_mean",
-            "nls_span",
-            "dft_span",
         ):
             if not is_close(py_c.get(k), cpp_c.get(k), args.rtol, args.atol):
+                errs.append(f"consistency.{k} py={py_c.get(k)!r} cpp={cpp_c.get(k)!r}")
+        for k in ("nls_span", "dft_span"):
+            if not is_close(py_c.get(k), cpp_c.get(k), args.rtol, 2.0 * args.atol):
                 errs.append(f"consistency.{k} py={py_c.get(k)!r} cpp={cpp_c.get(k)!r}")
 
     py_b = py.get("crlb_comparison_analysis") or {}

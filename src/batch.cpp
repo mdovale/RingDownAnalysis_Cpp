@@ -98,6 +98,19 @@ void append_summary_statistics_object(std::ostringstream& out, const SummaryStat
       << ",\"maximum\":" << json_number(s.maximum) << '}';
 }
 
+void append_json_timings_object(std::ostringstream& out, const AnalysisTimingsMs& timings) {
+  out << "{\"total\":" << json_number(timings.total) << ",\"load\":" << json_number(timings.load)
+      << ",\"normalize\":" << json_number(timings.normalize)
+      << ",\"initial_dft\":" << json_number(timings.initial_dft)
+      << ",\"tau_seed\":" << json_number(timings.tau_seed)
+      << ",\"full_record_tau\":" << json_number(timings.full_record_tau)
+      << ",\"crop\":" << json_number(timings.crop)
+      << ",\"cropped_nls\":" << json_number(timings.cropped_nls)
+      << ",\"cropped_dft_tau\":" << json_number(timings.cropped_dft_tau)
+      << ",\"noise_fit\":" << json_number(timings.noise_fit)
+      << ",\"crlb\":" << json_number(timings.crlb) << '}';
+}
+
 struct ProcessingSlot {
   std::optional<AnalyzerResult> result;
   std::string error_message;
@@ -322,7 +335,10 @@ std::string to_json(const ProcessResult& result) {
         << ", \"tau_est\": " << json_number(item.tau_estimate)
         << ", \"Q_nls\": " << optional_json_number(item.nls.quality_factor)
         << ", \"Q_dft\": " << optional_json_number(item.dft.quality_factor)
-        << ", \"plugin_crlb_std_f\": " << json_number(item.plugin_crlb_std_f) << "}";
+        << ", \"plugin_crlb_std_f\": " << json_number(item.plugin_crlb_std_f)
+        << ", \"timings_ms\": ";
+    append_json_timings_object(out, item.timings);
+    out << "}";
     if (index + 1U != result.results.size()) {
       out << ',';
     }
@@ -344,7 +360,9 @@ std::string to_json(const ProcessResult& result) {
   return out.str();
 }
 
-std::string to_json_batch_report(const BatchRingDownAnalyzer& batch, const ProcessResult& process) {
+std::string to_json_batch_report(const BatchRingDownAnalyzer& batch,
+                                 const ProcessResult& process,
+                                 BatchReportOptions options) {
   auto out = std::ostringstream{};
   out << std::setprecision(17);
   out << "{\n";
@@ -364,21 +382,38 @@ std::string to_json_batch_report(const BatchRingDownAnalyzer& batch, const Proce
   out << "  ],\n";
 
   out << "  \"results_notebook\": [\n";
-  for (auto index = std::size_t{0}; index < process.results.size(); ++index) {
-    const auto chunk = to_json_notebook(process.results[index]);
-    auto stream = std::istringstream{chunk};
-    auto line = std::string{};
-    auto first_line = true;
-    while (std::getline(stream, line)) {
-      if (line.empty()) {
-        continue;
+  if (options.include_notebook_results) {
+    for (auto index = std::size_t{0}; index < process.results.size(); ++index) {
+      const auto chunk = to_json_notebook(process.results[index]);
+      auto stream = std::istringstream{chunk};
+      auto line = std::string{};
+      auto first_line = true;
+      while (std::getline(stream, line)) {
+        if (line.empty()) {
+          continue;
+        }
+        if (!first_line) {
+          out << '\n';
+        }
+        first_line = false;
+        out << "    " << line;
       }
-      if (!first_line) {
-        out << '\n';
+      if (index + 1U != process.results.size()) {
+        out << ',';
       }
-      first_line = false;
-      out << "    " << line;
+      out << '\n';
     }
+  }
+  out << "  ],\n";
+
+  out << "  \"file_timings_ms\": [\n";
+  for (auto index = std::size_t{0}; index < process.results.size(); ++index) {
+    const auto& item = process.results[index];
+    out << "    {\"filename\": " << json_string(item.filename) << ", \"type\": "
+        << json_string(item.file_type) << ", \"N\": " << item.sample_count
+        << ", \"N_crop\": " << item.cropped_sample_count << ", \"timings\": ";
+    append_json_timings_object(out, item.timings);
+    out << "}";
     if (index + 1U != process.results.size()) {
       out << ',';
     }

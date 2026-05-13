@@ -546,8 +546,19 @@ RINGDOWN_TEST(to_json_batch_report_contains_summary_and_consistency) {
                           "batch report should include CRLB comparison");
   ringdown::test::require(report.find("\"summary_table\":") != std::string::npos,
                           "batch report should include summary table");
+  ringdown::test::require(report.find("\"file_timings_ms\":") != std::string::npos,
+                          "batch report should include per-file timing");
   ringdown::test::require(report.find("\"nls_mean\":") != std::string::npos,
                           "consistency should include nls_mean");
   ringdown::test::require(report.find("\"results_notebook\":") != std::string::npos,
                           "batch report should embed notebook results");
+
+  const auto summary_report =
+      ringdown::to_json_batch_report(analyzer, processed, ringdown::BatchReportOptions{false});
+  ringdown::test::require(summary_report.find("\"summary_table\":") != std::string::npos,
+                          "summary report should keep summary table");
+  ringdown::test::require(summary_report.find("\"file_timings_ms\":") != std::string::npos,
+                          "summary report should keep per-file timing");
+  ringdown::test::require(summary_report.find("\"t\": [") == std::string::npos,
+                          "summary report should omit waveform arrays");
 }

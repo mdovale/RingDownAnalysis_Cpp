@@ -10,6 +10,20 @@
 
 namespace ringdown {
 
+struct AnalysisTimingsMs {
+  double total{0.0};
+  double load{0.0};
+  double normalize{0.0};
+  double initial_dft{0.0};
+  double tau_seed{0.0};
+  double full_record_tau{0.0};
+  double crop{0.0};
+  double cropped_nls{0.0};
+  double cropped_dft_tau{0.0};
+  double noise_fit{0.0};
+  double crlb{0.0};
+};
+
 struct NoiseEstimate {
   double amplitude{0.0};
   double sigma{0.0};
@@ -42,35 +56,7 @@ struct AnalyzerResult {
   double cropped_observation_time{0.0};
   std::string filename;
   std::string file_type;
-};
-
-class RingDownAnalyzer {
-public:
-  RingDownAnalyzer(NLSFrequencyEstimator nls_estimator = NLSFrequencyEstimator{},
-                   DFTFrequencyEstimator dft_estimator = DFTFrequencyEstimator{});
-
-  [[nodiscard]] AnalyzerResult analyze_array(const std::vector<double>& samples,
-                                             double sample_rate_hz,
-                                             double max_tau_multiplier = 1.0) const;
-  [[nodiscard]] AnalyzerResult analyze_array(const std::vector<double>& time,
-                                             const std::vector<double>& samples,
-                                             double max_tau_multiplier = 1.0) const;
-  [[nodiscard]] AnalyzerResult analyze_file(const std::string& filepath,
-                                            double max_tau_multiplier = 1.0) const;
-
-  [[nodiscard]] double estimate_tau(const std::vector<double>& time,
-                                    const std::vector<double>& samples,
-                                    double sample_rate_hz,
-                                    std::optional<double> tau_initial = std::nullopt,
-                                    std::optional<InitialParameters> initial = std::nullopt) const;
-  [[nodiscard]] NoiseEstimate estimate_noise_parameters(const std::vector<double>& time,
-                                                       const std::vector<double>& samples,
-                                                       double tau_model,
-                                                       double frequency_hz) const;
-
-private:
-  NLSFrequencyEstimator nls_estimator_;
-  DFTFrequencyEstimator dft_estimator_;
+  AnalysisTimingsMs timings;
 };
 
 struct LoadedData {
@@ -96,6 +82,38 @@ public:
   [[nodiscard]] static LoadedData load_zip(
       const std::string& filepath,
       std::optional<std::uintmax_t> max_file_size_bytes = default_max_file_size_bytes);
+};
+
+class RingDownAnalyzer {
+public:
+  RingDownAnalyzer(NLSFrequencyEstimator nls_estimator = NLSFrequencyEstimator{},
+                   DFTFrequencyEstimator dft_estimator = DFTFrequencyEstimator{},
+                   std::optional<std::uintmax_t> max_file_size_bytes =
+                       RingDownDataLoader::default_max_file_size_bytes);
+
+  [[nodiscard]] AnalyzerResult analyze_array(const std::vector<double>& samples,
+                                             double sample_rate_hz,
+                                             double max_tau_multiplier = 1.0) const;
+  [[nodiscard]] AnalyzerResult analyze_array(const std::vector<double>& time,
+                                             const std::vector<double>& samples,
+                                             double max_tau_multiplier = 1.0) const;
+  [[nodiscard]] AnalyzerResult analyze_file(const std::string& filepath,
+                                            double max_tau_multiplier = 1.0) const;
+
+  [[nodiscard]] double estimate_tau(const std::vector<double>& time,
+                                    const std::vector<double>& samples,
+                                    double sample_rate_hz,
+                                    std::optional<double> tau_initial = std::nullopt,
+                                    std::optional<InitialParameters> initial = std::nullopt) const;
+  [[nodiscard]] NoiseEstimate estimate_noise_parameters(const std::vector<double>& time,
+                                                       const std::vector<double>& samples,
+                                                       double tau_model,
+                                                       double frequency_hz) const;
+
+private:
+  NLSFrequencyEstimator nls_estimator_;
+  DFTFrequencyEstimator dft_estimator_;
+  std::optional<std::uintmax_t> max_file_size_bytes_;
 };
 
 [[nodiscard]] std::string to_json(const AnalyzerResult& result);

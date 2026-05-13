@@ -67,6 +67,10 @@ struct BatchSummaryRow {
   bool uncertainty_valid{false};
 };
 
+struct BatchReportOptions {
+  bool include_notebook_results{true};
+};
+
 struct ConsistencyAnalysis {
   std::size_t realization_count{0};
   std::size_t pairwise_comparison_count{0};
@@ -114,6 +118,7 @@ private:
 /// Q factors, consistency and plug-in / CRLB comparison blocks (Python-notebook
 /// compatible field names where practical).
 [[nodiscard]] std::string to_json_batch_report(const BatchRingDownAnalyzer& batch,
-                                               const ProcessResult& process);
+                                               const ProcessResult& process,
+                                               BatchReportOptions options = {});
 
 } // namespace ringdown

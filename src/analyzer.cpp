@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cctype>
 #include <cstddef>
 #include <cmath>
@@ -31,6 +32,11 @@ namespace {
 
 [[nodiscard]] double mean(const std::vector<double>& values) {
   return std::accumulate(values.begin(), values.end(), 0.0) / static_cast<double>(values.size());
+}
+
+[[nodiscard]] double elapsed_milliseconds(std::chrono::steady_clock::time_point start) {
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  return std::chrono::duration<double, std::milli>{elapsed}.count();
 }
 
 [[nodiscard]] std::vector<double> inferred_time(std::size_t count, double sample_rate_hz) {
@@ -688,6 +694,19 @@ void append_json_double_array(std::ostringstream& out, const std::vector<double>
   out << ']';
 }
 
+void append_json_timings_object(std::ostringstream& out, const AnalysisTimingsMs& timings) {
+  out << "{\"total\":" << json_number(timings.total) << ",\"load\":" << json_number(timings.load)
+      << ",\"normalize\":" << json_number(timings.normalize)
+      << ",\"initial_dft\":" << json_number(timings.initial_dft)
+      << ",\"tau_seed\":" << json_number(timings.tau_seed)
+      << ",\"full_record_tau\":" << json_number(timings.full_record_tau)
+      << ",\"crop\":" << json_number(timings.crop)
+      << ",\"cropped_nls\":" << json_number(timings.cropped_nls)
+      << ",\"cropped_dft_tau\":" << json_number(timings.cropped_dft_tau)
+      << ",\"noise_fit\":" << json_number(timings.noise_fit)
+      << ",\"crlb\":" << json_number(timings.crlb) << '}';
+}
+
 [[nodiscard]] std::string optional_size_t_json(const std::optional<std::size_t>& value) {
   if (!value.has_value()) {
     return "null";
@@ -698,8 +717,11 @@ void append_json_double_array(std::ostringstream& out, const std::vector<double>
 } // namespace
 
 RingDownAnalyzer::RingDownAnalyzer(NLSFrequencyEstimator nls_estimator,
-                                   DFTFrequencyEstimator dft_estimator)
-    : nls_estimator_{std::move(nls_estimator)}, dft_estimator_{std::move(dft_estimator)} {}
+                                   DFTFrequencyEstimator dft_estimator,
+                                   std::optional<std::uintmax_t> max_file_size_bytes)
+    : nls_estimator_{std::move(nls_estimator)},
+      dft_estimator_{std::move(dft_estimator)},
+      max_file_size_bytes_{max_file_size_bytes} {}
 
 AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& samples,
                                                double sample_rate_hz,
@@ -710,6 +732,10 @@ AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& sample
 AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& time,
                                                const std::vector<double>& samples,
                                                double max_tau_multiplier) const {
+  auto timings = AnalysisTimingsMs{};
+  const auto total_start = std::chrono::steady_clock::now();
+
+  const auto normalize_start = std::chrono::steady_clock::now();
   validate_samples(samples, "Signal data");
   if (time.size() != samples.size()) {
     throw std::invalid_argument{"t and data must have same length"};
@@ -717,26 +743,47 @@ AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& time,
 
   auto normalized_time = time;
   const auto sample_rate_hz = validate_uniform_timebase(normalized_time);
+  timings.normalize = elapsed_milliseconds(normalize_start);
+
+  const auto initial_dft_start = std::chrono::steady_clock::now();
   const auto initial = estimate_initial_parameters_from_dft(samples, sample_rate_hz);
+  timings.initial_dft = elapsed_milliseconds(initial_dft_start);
+
+  const auto tau_seed_start = std::chrono::steady_clock::now();
   const auto tau_seed = estimate_initial_tau_from_envelope(samples, sample_rate_hz);
+  timings.tau_seed = elapsed_milliseconds(tau_seed_start);
+
+  const auto full_record_tau_start = std::chrono::steady_clock::now();
   auto tau_estimate = estimate_tau(normalized_time, samples, sample_rate_hz, tau_seed, initial);
   if (!std::isfinite(tau_estimate) || tau_estimate <= 0.0) {
     tau_estimate = tau_seed;
   }
+  timings.full_record_tau = elapsed_milliseconds(full_record_tau_start);
 
+  const auto crop_start = std::chrono::steady_clock::now();
   auto [cropped_time, cropped_samples] =
       crop_to_tau(normalized_time, samples, tau_estimate, max_tau_multiplier);
   if (cropped_time.size() < 1000U) {
     cropped_time = normalized_time;
     cropped_samples = samples;
   }
+  timings.crop = elapsed_milliseconds(crop_start);
 
   const auto cropped_tau_seed = std::max(tau_estimate, 1.0 / sample_rate_hz);
+  const auto cropped_nls_start = std::chrono::steady_clock::now();
   const auto nls = nls_estimator_.estimate_full(cropped_samples, sample_rate_hz, cropped_tau_seed, initial);
+  timings.cropped_nls = elapsed_milliseconds(cropped_nls_start);
+
+  const auto cropped_dft_start = std::chrono::steady_clock::now();
   const auto dft = dft_estimator_.estimate_full(cropped_samples, sample_rate_hz);
+  timings.cropped_dft_tau = elapsed_milliseconds(cropped_dft_start);
 
   const auto tau_model = nls.tau.value_or(dft.tau.value_or(tau_estimate));
+  const auto noise_start = std::chrono::steady_clock::now();
   const auto noise = estimate_noise_parameters(cropped_time, cropped_samples, tau_model, nls.frequency_hz);
+  timings.noise_fit = elapsed_milliseconds(noise_start);
+
+  const auto crlb_start = std::chrono::steady_clock::now();
   const auto crlb_var = CRLBCalculator::variance(
       std::max(noise.amplitude, std::numeric_limits<double>::epsilon()),
       std::max(noise.sigma, std::numeric_limits<double>::epsilon()),
@@ -745,37 +792,46 @@ AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& time,
       tau_model);
   const auto crlb_std = std::isfinite(crlb_var) ? std::sqrt(crlb_var)
                                                 : std::numeric_limits<double>::infinity();
+  timings.crlb = elapsed_milliseconds(crlb_start);
+  timings.total = elapsed_milliseconds(total_start);
 
-  return AnalyzerResult{normalized_time,
-                        samples,
-                        cropped_time,
-                        cropped_samples,
-                        {},
-                        sample_rate_hz,
-                        tau_seed,
-                        tau_estimate,
-                        tau_model,
-                        nls,
-                        dft,
-                        noise,
-                        crlb_var,
-                        crlb_std,
-                        noise.success && nls.success && std::isfinite(crlb_std) && crlb_std > 0.0,
-                        normalized_time.size(),
-                        cropped_samples.size(),
-                        normalized_time.back(),
-                        cropped_time.back(),
-                        {},
-                        {}};
+  auto result = AnalyzerResult{normalized_time,
+                               samples,
+                               cropped_time,
+                               cropped_samples,
+                               {},
+                               sample_rate_hz,
+                               tau_seed,
+                               tau_estimate,
+                               tau_model,
+                               nls,
+                               dft,
+                               noise,
+                               crlb_var,
+                               crlb_std,
+                               noise.success && nls.success && std::isfinite(crlb_std) && crlb_std > 0.0,
+                               normalized_time.size(),
+                               cropped_samples.size(),
+                               normalized_time.back(),
+                               cropped_time.back(),
+                               {},
+                               {},
+                               timings};
+  return result;
 }
 
 AnalyzerResult RingDownAnalyzer::analyze_file(const std::string& filepath,
                                               double max_tau_multiplier) const {
-  const auto loaded = RingDownDataLoader::load(filepath);
+  const auto total_start = std::chrono::steady_clock::now();
+  const auto load_start = std::chrono::steady_clock::now();
+  const auto loaded = RingDownDataLoader::load(filepath, max_file_size_bytes_);
+  const auto load_ms = elapsed_milliseconds(load_start);
   auto result = analyze_array(loaded.time, loaded.samples, max_tau_multiplier);
+  result.timings.load = load_ms;
   result.secondary_samples = loaded.secondary_samples;
   result.filename = std::filesystem::path{filepath}.filename().string();
   result.file_type = loaded.file_type;
+  result.timings.total = elapsed_milliseconds(total_start);
   return result;
 }
 
@@ -786,8 +842,19 @@ double RingDownAnalyzer::estimate_tau(const std::vector<double>& time,
                                       std::optional<InitialParameters> initial) const {
   (void)time;
   const auto tau_seed = tau_initial.value_or(estimate_initial_tau_from_envelope(samples, sample_rate_hz));
+  const auto dft_tau = DFTFrequencyEstimator{}.estimate_full(samples, sample_rate_hz).tau;
+  if (dft_tau.has_value() && std::isfinite(*dft_tau) && *dft_tau > 0.0) {
+    return *dft_tau;
+  }
   const auto result = NLSFrequencyEstimator{}.estimate_full(samples, sample_rate_hz, tau_seed, initial);
-  return result.tau.value_or(tau_seed);
+  const auto tau = result.tau.value_or(tau_seed);
+  if (!std::isfinite(tau) || tau <= 0.0) {
+    return tau_seed;
+  }
+  if (std::isfinite(tau_seed) && tau_seed > 0.0 && tau < 0.01 * tau_seed) {
+    return tau_seed;
+  }
+  return tau;
 }
 
 NoiseEstimate RingDownAnalyzer::estimate_noise_parameters(const std::vector<double>& time,
@@ -1046,7 +1113,10 @@ std::string to_json(const AnalyzerResult& result) {
   out << "  \"sigma_est\": " << json_number(result.noise.sigma) << ",\n";
   out << "  \"plugin_crlb_var_f\": " << json_number(result.plugin_crlb_variance_f) << ",\n";
   out << "  \"plugin_crlb_std_f\": " << json_number(result.plugin_crlb_std_f) << ",\n";
-  out << "  \"uncertainty_valid\": " << (result.uncertainty_valid ? "true" : "false") << "\n";
+  out << "  \"uncertainty_valid\": " << (result.uncertainty_valid ? "true" : "false") << ",\n";
+  out << "  \"timings_ms\": ";
+  append_json_timings_object(out, result.timings);
+  out << "\n";
   out << "}\n";
   return out.str();
 }
@@ -1115,7 +1185,10 @@ std::string to_json_notebook(const AnalyzerResult& result) {
   out << "  \"N\": " << result.sample_count << ",\n";
   out << "  \"N_crop\": " << result.cropped_sample_count << ",\n";
   out << "  \"T\": " << json_number(result.observation_time) << ",\n";
-  out << "  \"T_crop\": " << json_number(result.cropped_observation_time) << "\n";
+  out << "  \"T_crop\": " << json_number(result.cropped_observation_time) << ",\n";
+  out << "  \"timings_ms\": ";
+  append_json_timings_object(out, result.timings);
+  out << "\n";
   out << "}\n";
   return out.str();
 }
