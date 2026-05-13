@@ -12,6 +12,7 @@ include(cmake/ProjectOptions.cmake)
 option(RINGDOWN_BUILD_TESTS "Build RingDownAnalysisCpp tests" ON)
 option(RINGDOWN_BUILD_BENCHMARKS "Build RingDownAnalysisCpp benchmarks" ON)
 option(RINGDOWN_BUILD_APPS "Build RingDownAnalysisCpp command-line tools" ON)
+option(RINGDOWN_BUILD_EXAMPLES "Build RingDownAnalysisCpp notebook parity examples" ON)
 
 find_package(ZLIB REQUIRED)
 
@@ -57,4 +58,8 @@ endif()
 
 if(RINGDOWN_BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
+endif()
+
+if(RINGDOWN_BUILD_EXAMPLES)
+  add_subdirectory(examples)
 endif()

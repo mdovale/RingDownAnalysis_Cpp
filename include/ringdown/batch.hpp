@@ -95,4 +95,10 @@ private:
 
 [[nodiscard]] std::string to_json(const ProcessResult& result);
 
+/// Full batch report: per-file notebook-shaped results, failures, summary rows,
+/// Q factors, consistency and plug-in / CRLB comparison blocks (Python-notebook
+/// compatible field names where practical).
+[[nodiscard]] std::string to_json_batch_report(const BatchRingDownAnalyzer& batch,
+                                               const ProcessResult& process);
+
 } // namespace ringdown

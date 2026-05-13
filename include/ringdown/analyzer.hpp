@@ -87,4 +87,9 @@ public:
 
 [[nodiscard]] std::string to_json(const AnalyzerResult& result);
 
+/// JSON export aligned with Python `RingDownAnalyzer.analyze_array` / `analyze_file`
+/// result dicts (waveforms, estimator diagnostics, uncertainty aliases) for notebooks
+/// and downstream tooling. Arrays may be large.
+[[nodiscard]] std::string to_json_notebook(const AnalyzerResult& result);
+
 } // namespace ringdown

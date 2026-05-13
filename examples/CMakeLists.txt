@@ -1,0 +1,7 @@
+add_executable(array_analysis_example array_analysis_example.cpp)
+target_link_libraries(array_analysis_example PRIVATE RingDownAnalysisCpp::ringdownanalysis)
+ringdown_apply_project_options(array_analysis_example)
+
+add_executable(batch_analysis_example batch_analysis_example.cpp)
+target_link_libraries(batch_analysis_example PRIVATE RingDownAnalysisCpp::ringdownanalysis)
+ringdown_apply_project_options(batch_analysis_example)

@@ -22,6 +22,7 @@ This repository contains the first C++ vertical slice of the Python
 - fixture-backed CTest coverage against Python-generated numerical goldens
 - representative benchmark target
 - CI workflow for macOS and Linux
+- [`examples/`](examples/) — notebook-shaped exports and Python/Jupyter parity checks
 
 Real CSV and MAT files from the Python reference checkout have been analyzed
 from the C++ CLI. See `docs/RESULTS_AND_PERFORMANCE.md` for commands, measured

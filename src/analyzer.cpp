@@ -652,6 +652,24 @@ void remove_mean(std::vector<double>& values) {
   return out.str();
 }
 
+void append_json_double_array(std::ostringstream& out, const std::vector<double>& values) {
+  out << '[';
+  for (auto index = std::size_t{0}; index < values.size(); ++index) {
+    if (index != 0U) {
+      out << ',';
+    }
+    out << json_number(values[index]);
+  }
+  out << ']';
+}
+
+[[nodiscard]] std::string optional_size_t_json(const std::optional<std::size_t>& value) {
+  if (!value.has_value()) {
+    return "null";
+  }
+  return std::to_string(*value);
+}
+
 } // namespace
 
 RingDownAnalyzer::RingDownAnalyzer(NLSFrequencyEstimator nls_estimator,
@@ -981,6 +999,75 @@ std::string to_json(const AnalyzerResult& result) {
   out << "  \"plugin_crlb_var_f\": " << json_number(result.plugin_crlb_variance_f) << ",\n";
   out << "  \"plugin_crlb_std_f\": " << json_number(result.plugin_crlb_std_f) << ",\n";
   out << "  \"uncertainty_valid\": " << (result.uncertainty_valid ? "true" : "false") << "\n";
+  out << "}\n";
+  return out.str();
+}
+
+std::string to_json_notebook(const AnalyzerResult& result) {
+  auto out = std::ostringstream{};
+  out << std::setprecision(17);
+  out << "{\n";
+  out << "  \"filename\": " << json_string(result.filename) << ",\n";
+  out << "  \"type\": " << json_string(result.file_type) << ",\n";
+  out << "  \"t\": ";
+  append_json_double_array(out, result.time);
+  out << ",\n";
+  out << "  \"data\": ";
+  append_json_double_array(out, result.samples);
+  out << ",\n";
+  if (result.secondary_samples.empty()) {
+    out << "  \"V2\": null,\n";
+  } else {
+    out << "  \"V2\": ";
+    append_json_double_array(out, result.secondary_samples);
+    out << ",\n";
+  }
+  out << "  \"t_crop\": ";
+  append_json_double_array(out, result.cropped_time);
+  out << ",\n";
+  out << "  \"data_cropped\": ";
+  append_json_double_array(out, result.cropped_samples);
+  out << ",\n";
+  out << "  \"fs\": " << json_number(result.sample_rate_hz) << ",\n";
+  out << "  \"tau_seed\": " << json_number(result.tau_seed) << ",\n";
+  out << "  \"tau_est\": " << json_number(result.tau_estimate) << ",\n";
+  out << "  \"tau_model\": " << json_number(result.tau_model) << ",\n";
+  out << "  \"f_nls\": " << json_number(result.nls.frequency_hz) << ",\n";
+  out << "  \"f_dft\": " << json_number(result.dft.frequency_hz) << ",\n";
+  out << "  \"tau_nls\": " << optional_number(result.nls.tau) << ",\n";
+  out << "  \"tau_dft\": " << optional_number(result.dft.tau) << ",\n";
+  out << "  \"Q_nls\": " << optional_number(result.nls.quality_factor) << ",\n";
+  out << "  \"Q_dft\": " << optional_number(result.dft.quality_factor) << ",\n";
+  out << "  \"nls_evaluations\": " << optional_size_t_json(result.nls.evaluations) << ",\n";
+  out << "  \"dft_evaluations\": " << optional_size_t_json(result.dft.evaluations) << ",\n";
+  const auto q_pre =
+      std::isfinite(result.nls.frequency_hz) && std::isfinite(result.tau_estimate) && result.tau_estimate > 0.0
+          ? std::numbers::pi * result.nls.frequency_hz * result.tau_estimate
+          : std::numeric_limits<double>::quiet_NaN();
+  out << "  \"Q_pre_crop\": " << json_number(q_pre) << ",\n";
+  out << "  \"nls_success\": " << (result.nls.success ? "true" : "false") << ",\n";
+  out << "  \"dft_success\": " << (result.dft.success ? "true" : "false") << ",\n";
+  out << "  \"nls_used_fallback\": " << (result.nls.used_fallback ? "true" : "false") << ",\n";
+  out << "  \"dft_used_fallback\": " << (result.dft.used_fallback ? "true" : "false") << ",\n";
+  out << "  \"nls_message\": " << json_string(result.nls.message) << ",\n";
+  out << "  \"dft_message\": " << json_string(result.dft.message) << ",\n";
+  out << "  \"A0_est\": " << json_number(result.noise.amplitude) << ",\n";
+  out << "  \"sigma_est\": " << json_number(result.noise.sigma) << ",\n";
+  out << "  \"sigma_mle_est\": " << json_number(result.noise.sigma_mle) << ",\n";
+  out << "  \"noise_dof\": " << result.noise.degrees_of_freedom << ",\n";
+  out << "  \"noise_estimation_success\": " << (result.noise.success ? "true" : "false") << ",\n";
+  out << "  \"noise_estimation_method\": " << json_string(result.noise.method) << ",\n";
+  out << "  \"noise_estimation_message\": " << json_string(result.noise.message) << ",\n";
+  out << "  \"plugin_crlb_var_f\": " << json_number(result.plugin_crlb_variance_f) << ",\n";
+  out << "  \"plugin_crlb_std_f\": " << json_number(result.plugin_crlb_std_f) << ",\n";
+  out << "  \"uncertainty_std_f\": " << json_number(result.plugin_crlb_std_f) << ",\n";
+  out << "  \"crlb_std_f\": " << json_number(result.plugin_crlb_std_f) << ",\n";
+  out << "  \"crlb_std_f_is_alias\": true,\n";
+  out << "  \"uncertainty_valid\": " << (result.uncertainty_valid ? "true" : "false") << ",\n";
+  out << "  \"N\": " << result.sample_count << ",\n";
+  out << "  \"N_crop\": " << result.cropped_sample_count << ",\n";
+  out << "  \"T\": " << json_number(result.observation_time) << ",\n";
+  out << "  \"T_crop\": " << json_number(result.cropped_observation_time) << "\n";
   out << "}\n";
   return out.str();
 }

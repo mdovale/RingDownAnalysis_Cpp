@@ -466,3 +466,70 @@ RINGDOWN_TEST(json_exports_escape_strings_and_null_nonfinite_values) {
   ringdown::test::require(monte_carlo_json.find("\"mean\": null") != std::string::npos,
                           "Monte Carlo JSON should null non-finite stats");
 }
+
+RINGDOWN_TEST(to_json_notebook_exports_waveforms_and_estimator_fields) {
+  auto result = ringdown::AnalyzerResult{};
+  result.filename = "test.csv";
+  result.file_type = "CSV";
+  result.time = {0.0, 0.5, 1.0};
+  result.samples = {1.0, -2.0, 3.0};
+  result.cropped_time = {0.0, 0.5};
+  result.cropped_samples = {1.1, -2.1};
+  result.sample_rate_hz = 2.0;
+  result.tau_seed = 0.1;
+  result.tau_estimate = 0.2;
+  result.tau_model = 0.25;
+  result.nls.frequency_hz = 5.5;
+  result.dft.frequency_hz = 5.6;
+  result.nls.success = true;
+  result.dft.success = false;
+  result.nls.used_fallback = false;
+  result.dft.used_fallback = true;
+  result.nls.message = "ok";
+  result.dft.message = "warn\"x";
+  result.nls.evaluations = 42U;
+  result.noise.amplitude = 0.5;
+  result.noise.sigma = 0.01;
+  result.noise.sigma_mle = 0.011;
+  result.noise.degrees_of_freedom = 99U;
+  result.noise.success = true;
+  result.noise.method = "test";
+  result.noise.message = "noise ok";
+  result.plugin_crlb_variance_f = 1.0e-6;
+  result.plugin_crlb_std_f = 1.0e-3;
+  result.uncertainty_valid = true;
+  result.sample_count = 3U;
+  result.cropped_sample_count = 2U;
+  result.observation_time = 1.0;
+  result.cropped_observation_time = 0.5;
+
+  const auto text = ringdown::to_json_notebook(result);
+  ringdown::test::require(text.find("\"t\": [") != std::string::npos, "notebook JSON should include time array");
+  ringdown::test::require(text.find("\"V2\": null") != std::string::npos, "notebook JSON should null V2");
+  ringdown::test::require(text.find("\"dft_message\": \"warn\\\"x\"") != std::string::npos,
+                          "notebook JSON should escape nested quotes");
+  ringdown::test::require(text.find("\"nls_evaluations\": 42") != std::string::npos,
+                          "notebook JSON should include evaluations");
+  const auto t_arr = extract_array(text, "t", 0U);
+  ringdown::test::require(t_arr.size() == 3U, "t array length");
+  require_near(t_arr[1], 0.5, 0.0, "t[1]");
+}
+
+RINGDOWN_TEST(to_json_batch_report_contains_summary_and_consistency) {
+  auto analyzer = ringdown::BatchRingDownAnalyzer{};
+  const auto processed = analyzer.process_files({reference_fixture_path("moku_small.csv").string(),
+                                                 reference_fixture_path("moku_small.mat").string()},
+                                                1U);
+  const auto report = ringdown::to_json_batch_report(analyzer, processed);
+  ringdown::test::require(report.find("\"q_factors\":") != std::string::npos, "batch report should list Q");
+  ringdown::test::require(report.find("\"consistency_analysis\":") != std::string::npos,
+                          "batch report should include consistency");
+  ringdown::test::require(report.find("\"crlb_comparison_analysis\":") != std::string::npos,
+                          "batch report should include CRLB comparison");
+  ringdown::test::require(report.find("\"summary_table\":") != std::string::npos,
+                          "batch report should include summary table");
+  ringdown::test::require(report.find("\"nls_mean\":") != std::string::npos,
+                          "consistency should include nls_mean");
+  ringdown::test::require(report.find("\"results_notebook\":") != std::string::npos,
+                          "batch report should embed notebook results");
+}
