@@ -1,0 +1,3 @@
+add_executable(ringdown_benchmark_smoke benchmark_smoke.cpp)
+target_link_libraries(ringdown_benchmark_smoke PRIVATE RingDownAnalysisCpp::ringdownanalysis)
+ringdown_apply_project_options(ringdown_benchmark_smoke)
