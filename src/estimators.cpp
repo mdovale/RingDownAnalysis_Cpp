@@ -14,6 +14,8 @@ namespace ringdown {
 namespace {
 
 constexpr auto kGoldenRatioConjugate = 0.6180339887498948482;
+constexpr auto kGoldenSearchIterations = std::size_t{32U};
+constexpr auto kAlternatingFitIterations = std::size_t{3U};
 
 [[nodiscard]] double mean(const std::vector<double>& values) {
   return std::accumulate(values.begin(), values.end(), 0.0) / static_cast<double>(values.size());
@@ -304,17 +306,29 @@ struct LinearFit {
   }
 
   auto normal = std::array<std::array<double, 4>, 3>{};
+  auto sample_sum_squares = 0.0;
+  const auto dt = 1.0 / sample_rate_hz;
+  const auto envelope_step = std::exp(-dt / tau);
+  const auto angle_step = 2.0 * std::numbers::pi * frequency_hz * dt;
+  const auto cos_step = std::cos(angle_step);
+  const auto sin_step = std::sin(angle_step);
+  auto envelope = 1.0;
+  auto cos_value = 1.0;
+  auto sin_value = 0.0;
   for (auto index = std::size_t{0}; index < samples.size(); ++index) {
-    const auto t = static_cast<double>(index) / sample_rate_hz;
-    const auto envelope = std::exp(-t / tau);
-    const auto angle = 2.0 * std::numbers::pi * frequency_hz * t;
-    const auto row = std::array<double, 3>{envelope * std::cos(angle), envelope * std::sin(angle), 1.0};
+    const auto row = std::array<double, 3>{envelope * cos_value, envelope * sin_value, 1.0};
+    sample_sum_squares += samples[index] * samples[index];
     for (auto lhs = std::size_t{0}; lhs < 3U; ++lhs) {
       for (auto rhs = std::size_t{0}; rhs < 3U; ++rhs) {
         normal[lhs][rhs] += row[lhs] * row[rhs];
       }
       normal[lhs][3] += row[lhs] * samples[index];
     }
+    const auto next_cos = cos_value * cos_step - sin_value * sin_step;
+    const auto next_sin = sin_value * cos_step + cos_value * sin_step;
+    cos_value = next_cos;
+    sin_value = next_sin;
+    envelope *= envelope_step;
   }
 
   const auto solution = solve_3x3(normal);
@@ -322,16 +336,9 @@ struct LinearFit {
     return {};
   }
 
-  auto rss = 0.0;
-  for (auto index = std::size_t{0}; index < samples.size(); ++index) {
-    const auto t = static_cast<double>(index) / sample_rate_hz;
-    const auto envelope = std::exp(-t / tau);
-    const auto angle = 2.0 * std::numbers::pi * frequency_hz * t;
-    const auto fitted = (*solution)[0] * envelope * std::cos(angle) +
-                        (*solution)[1] * envelope * std::sin(angle) + (*solution)[2];
-    const auto residual = fitted - samples[index];
-    rss += residual * residual;
-  }
+  const auto explained_sum_squares = (*solution)[0] * normal[0][3] + (*solution)[1] * normal[1][3] +
+                                     (*solution)[2] * normal[2][3];
+  const auto rss = std::max(0.0, sample_sum_squares - explained_sum_squares);
 
   return LinearFit{std::hypot((*solution)[0], (*solution)[1]),
                    std::atan2(-(*solution)[1], (*solution)[0]),
@@ -423,7 +430,7 @@ template <typename Function>
         f_low,
         f_high,
         [&](double candidate) { return fit_fixed_frequency_tau(samples, sample_rate_hz, candidate, tau).rss; },
-        48U);
+        kGoldenSearchIterations);
   };
   const auto optimize_tau = [&]() {
     tau = minimize_golden(
@@ -432,13 +439,13 @@ template <typename Function>
         [&](double candidate) {
           return fit_fixed_frequency_tau(samples, sample_rate_hz, frequency, candidate).rss;
         },
-        48U);
+        kGoldenSearchIterations);
   };
 
   if (known_tau.has_value()) {
     optimize_frequency();
   } else {
-    for (auto iteration = std::size_t{0}; iteration < 4U; ++iteration) {
+    for (auto iteration = std::size_t{0}; iteration < kAlternatingFitIterations; ++iteration) {
       optimize_frequency();
       optimize_tau();
     }
@@ -509,7 +516,7 @@ EstimationResult DFTFrequencyEstimator::estimate_full(const std::vector<double>&
       [&](double candidate) {
         return fit_fixed_frequency_tau(samples, sample_rate_hz, result.frequency_hz, candidate).rss;
       },
-      48U);
+      kGoldenSearchIterations);
   if (!std::isfinite(tau) || tau <= 0.0) {
     result.success = false;
     result.used_fallback = true;

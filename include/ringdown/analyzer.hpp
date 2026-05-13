@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -79,10 +80,20 @@ struct LoadedData {
 
 class RingDownDataLoader {
 public:
-  [[nodiscard]] static LoadedData load(const std::string& filepath);
-  [[nodiscard]] static LoadedData load_csv(const std::string& filepath);
-  [[nodiscard]] static LoadedData load_mat(const std::string& filepath);
-  [[nodiscard]] static LoadedData load_zip(const std::string& filepath);
+  static constexpr std::uintmax_t default_max_file_size_bytes = 1024ULL * 1024ULL * 1024ULL;
+
+  [[nodiscard]] static LoadedData load(
+      const std::string& filepath,
+      std::optional<std::uintmax_t> max_file_size_bytes = default_max_file_size_bytes);
+  [[nodiscard]] static LoadedData load_csv(
+      const std::string& filepath,
+      std::optional<std::uintmax_t> max_file_size_bytes = default_max_file_size_bytes);
+  [[nodiscard]] static LoadedData load_mat(
+      const std::string& filepath,
+      std::optional<std::uintmax_t> max_file_size_bytes = default_max_file_size_bytes);
+  [[nodiscard]] static LoadedData load_zip(
+      const std::string& filepath,
+      std::optional<std::uintmax_t> max_file_size_bytes = default_max_file_size_bytes);
 };
 
 [[nodiscard]] std::string to_json(const AnalyzerResult& result);

@@ -5,8 +5,10 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstddef>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -18,6 +20,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 #include <zlib.h>
@@ -144,28 +147,50 @@ void validate_samples(const std::vector<double>& samples, const char* source) {
   return std::array<double, 3>{matrix[0][3], matrix[1][3], matrix[2][3]};
 }
 
-[[nodiscard]] std::vector<std::string> split_csv_line(const std::string& line) {
-  auto fields = std::vector<std::string>{};
-  auto field = std::string{};
-  auto stream = std::istringstream{line};
-  while (std::getline(stream, field, ',')) {
-    fields.push_back(field);
-  }
-  return fields;
-}
-
-[[nodiscard]] bool parse_double(const std::string& text, double& value) {
-  auto stream = std::istringstream{text};
-  stream >> value;
-  return !stream.fail();
-}
-
 [[nodiscard]] bool parse_csv_data_row(const std::string& line, double& time, double& sample) {
-  const auto fields = split_csv_line(line);
-  if (fields.size() < 4U) {
+  const auto* cursor = line.c_str();
+  auto* end = const_cast<char*>(cursor);
+  time = std::strtod(cursor, &end);
+  if (end == cursor) {
     return false;
   }
-  return parse_double(fields[0], time) && parse_double(fields[3], sample);
+
+  cursor = std::strchr(end, ',');
+  if (cursor == nullptr) {
+    return false;
+  }
+  for (auto column = 1U; column < 3U; ++column) {
+    cursor = std::strchr(cursor + 1, ',');
+    if (cursor == nullptr) {
+      return false;
+    }
+  }
+
+  const auto* sample_start = cursor + 1;
+  sample = std::strtod(sample_start, &end);
+  return end != sample_start;
+}
+
+[[nodiscard]] std::string format_byte_count(std::uintmax_t value) {
+  auto digits = std::to_string(value);
+  for (auto insert_at = static_cast<std::ptrdiff_t>(digits.size()) - 3; insert_at > 0; insert_at -= 3) {
+    digits.insert(static_cast<std::size_t>(insert_at), ",");
+  }
+  return digits;
+}
+
+void check_file_size(const std::string& filepath, std::uintmax_t max_file_size_bytes) {
+  auto error = std::error_code{};
+  const auto size = std::filesystem::file_size(filepath, error);
+  if (error) {
+    return;
+  }
+  if (size <= max_file_size_bytes) {
+    return;
+  }
+  throw std::invalid_argument{"File size (" + format_byte_count(size) +
+                              " bytes) exceeds maximum allowed (" +
+                              format_byte_count(max_file_size_bytes) + " bytes): " + filepath};
 }
 
 [[nodiscard]] std::string lower_ascii(std::string value) {
@@ -824,26 +849,37 @@ NoiseEstimate RingDownAnalyzer::estimate_noise_parameters(const std::vector<doub
                        {}};
 }
 
-LoadedData RingDownDataLoader::load(const std::string& filepath) {
+LoadedData RingDownDataLoader::load(const std::string& filepath,
+                                    std::optional<std::uintmax_t> max_file_size_bytes) {
+  if (max_file_size_bytes.has_value()) {
+    check_file_size(filepath, *max_file_size_bytes);
+  }
   const auto path = std::filesystem::path{filepath};
   const auto extension = lower_ascii(path.extension().string());
   if (extension == ".csv") {
-    return load_csv(filepath);
+    return load_csv(filepath, max_file_size_bytes);
   }
   if (extension == ".mat") {
-    return load_mat(filepath);
+    return load_mat(filepath, max_file_size_bytes);
   }
   if (extension == ".zip") {
-    return load_zip(filepath);
+    return load_zip(filepath, max_file_size_bytes);
   }
   throw std::invalid_argument{"Unsupported file format: expected .csv, .mat, or .zip"};
 }
 
 namespace {
 
-LoadedData load_csv_stream(std::istream& file, const std::string& source, std::string file_type) {
+LoadedData load_csv_stream(std::istream& file,
+                           const std::string& source,
+                           std::string file_type,
+                           std::size_t reserve_count = 0U) {
   auto time = std::vector<double>{};
   auto samples = std::vector<double>{};
+  if (reserve_count > 0U) {
+    time.reserve(reserve_count);
+    samples.reserve(reserve_count);
+  }
   auto line = std::string{};
   while (std::getline(file, line)) {
     const auto first = line.find_first_not_of(" \t\r\n");
@@ -876,15 +912,26 @@ LoadedData load_csv_stream(std::istream& file, const std::string& source, std::s
 
 } // namespace
 
-LoadedData RingDownDataLoader::load_csv(const std::string& filepath) {
+LoadedData RingDownDataLoader::load_csv(const std::string& filepath,
+                                        std::optional<std::uintmax_t> max_file_size_bytes) {
+  if (max_file_size_bytes.has_value()) {
+    check_file_size(filepath, *max_file_size_bytes);
+  }
+  const auto reserve_count =
+      static_cast<std::size_t>(std::min<std::uintmax_t>(std::filesystem::file_size(filepath) / 64U,
+                                                       std::numeric_limits<std::size_t>::max()));
   auto file = std::ifstream{filepath};
   if (!file) {
     throw std::runtime_error{"Could not open CSV file: " + filepath};
   }
-  return load_csv_stream(file, filepath, "CSV");
+  return load_csv_stream(file, filepath, "CSV", reserve_count);
 }
 
-LoadedData RingDownDataLoader::load_zip(const std::string& filepath) {
+LoadedData RingDownDataLoader::load_zip(const std::string& filepath,
+                                        std::optional<std::uintmax_t> max_file_size_bytes) {
+  if (max_file_size_bytes.has_value()) {
+    check_file_size(filepath, *max_file_size_bytes);
+  }
   auto file = std::ifstream{filepath, std::ios::binary};
   if (!file) {
     throw std::runtime_error{"Could not open ZIP file: " + filepath};
@@ -895,10 +942,14 @@ LoadedData RingDownDataLoader::load_zip(const std::string& filepath) {
   const auto& csv_entry = select_single_csv_entry(entries, filepath);
   const auto csv_text = extract_zip_entry(bytes, csv_entry);
   auto stream = std::istringstream{csv_text};
-  return load_csv_stream(stream, filepath + ":" + csv_entry.name, "ZIP_CSV");
+  return load_csv_stream(stream, filepath + ":" + csv_entry.name, "ZIP_CSV", csv_text.size() / 64U);
 }
 
-LoadedData RingDownDataLoader::load_mat(const std::string& filepath) {
+LoadedData RingDownDataLoader::load_mat(const std::string& filepath,
+                                        std::optional<std::uintmax_t> max_file_size_bytes) {
+  if (max_file_size_bytes.has_value()) {
+    check_file_size(filepath, *max_file_size_bytes);
+  }
   auto file = std::ifstream{filepath, std::ios::binary};
   if (!file) {
     throw std::runtime_error{"Could not open MAT file: " + filepath};

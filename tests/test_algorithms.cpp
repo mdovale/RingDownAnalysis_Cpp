@@ -361,6 +361,20 @@ RINGDOWN_TEST(loader_and_analyzer_run_file_workflows) {
   std::filesystem::remove(zip_path);
 }
 
+RINGDOWN_TEST(loader_rejects_files_above_size_limit_before_parsing) {
+  const auto path = std::filesystem::current_path() / "oversized_guard.csv";
+  {
+    auto file = std::ofstream{path};
+    file << "0,0,0,1\n";
+  }
+
+  require_invalid_argument(
+      [&] { (void)ringdown::RingDownDataLoader::load_csv(path.string(), 1U); },
+      "CSV loader should reject files above configured size limit");
+
+  std::filesystem::remove(path);
+}
+
 RINGDOWN_TEST(batch_workflow_matches_pipeline_fixture) {
   const auto text = fixture_text();
   const auto batch = find_key(text, "batch");
