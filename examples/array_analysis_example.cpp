@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
   try {
     auto output_dir = std::filesystem::path{"results/examples/array_analysis_cpp"};
     auto input_csv = std::string{};
-    auto max_tau_multiplier = 1.0;
+    auto max_tau_multiplier = 3.0;
     for (auto index = 1; index < argc; ++index) {
       const auto arg = std::string_view{argv[index]};
       if (arg == "--output-dir" && index + 1 < argc) {
@@ -122,7 +122,7 @@ int main(int argc, char** argv) {
         std::cout << "Usage: array_analysis_example [options]\n"
                   << "  --output-dir <path>   default: results/examples/array_analysis_cpp\n"
                   << "  --input-csv <path>    optional shared t,data CSV (time column 0, data column 1)\n"
-                  << "  --max-tau-multiplier <float>  default: 1.0\n";
+                  << "  --max-tau-multiplier <float>  default: 3.0\n";
         return 0;
       }
     }
