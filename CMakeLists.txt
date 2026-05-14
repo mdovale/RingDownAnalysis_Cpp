@@ -26,6 +26,7 @@ target_sources(
           src/crlb.cpp
           src/estimators.cpp
           src/monte_carlo.cpp
+          src/q_profile.cpp
           src/signal.cpp
           src/version.cpp
   PUBLIC FILE_SET HEADERS
@@ -35,6 +36,7 @@ target_sources(
                include/ringdown/crlb.hpp
                include/ringdown/estimators.hpp
                include/ringdown/monte_carlo.hpp
+               include/ringdown/q_profile.hpp
                include/ringdown/ringdown.hpp
                include/ringdown/signal.hpp
                include/ringdown/version.hpp)
