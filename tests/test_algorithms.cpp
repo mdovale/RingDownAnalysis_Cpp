@@ -82,6 +82,49 @@ namespace {
   return values;
 }
 
+[[nodiscard]] bool extract_json_bool(const std::string& text, std::string_view key, std::size_t section_start = 0U) {
+  const auto key_position = find_key(text, key, section_start);
+  const auto colon = text.find(':', key_position);
+  if (colon == std::string::npos) {
+    throw std::runtime_error{"missing ':' after JSON key"};
+  }
+  auto position = text.find_first_not_of(" \t\n\r", colon + 1U);
+  if (position == std::string::npos) {
+    throw std::runtime_error{"missing bool value"};
+  }
+  if (text.compare(position, 4, "true") == 0) {
+    return true;
+  }
+  if (text.compare(position, 5, "false") == 0) {
+    return false;
+  }
+  throw std::runtime_error{"expected JSON true/false"};
+}
+
+[[nodiscard]] std::string extract_json_string(const std::string& text,
+                                              std::string_view key,
+                                              std::size_t section_start = 0U) {
+  const auto key_position = find_key(text, key, section_start);
+  const auto colon = text.find(':', key_position);
+  if (colon == std::string::npos) {
+    throw std::runtime_error{"missing ':' after JSON key"};
+  }
+  auto position = text.find_first_not_of(" \t\n\r", colon + 1U);
+  if (position == std::string::npos || text[position] != '"') {
+    throw std::runtime_error{"expected quoted JSON string"};
+  }
+  ++position;
+  auto out = std::string{};
+  while (position < text.size() && text[position] != '"') {
+    if (text[position] == '\\' && position + 1U < text.size()) {
+      ++position;
+    }
+    out.push_back(text[position]);
+    ++position;
+  }
+  return out;
+}
+
 void require_near(double actual, double expected, double tolerance, std::string_view message) {
   if (std::abs(actual - expected) > tolerance) {
     auto out = std::ostringstream{};
@@ -320,6 +363,52 @@ RINGDOWN_TEST(analyzer_runs_array_workflow) {
   ringdown::test::require(result.cropped_sample_count > 0U, "analyzer should keep samples");
 }
 
+RINGDOWN_TEST(analyzer_default_three_tau_matches_explicit) {
+  const auto text = fixture_text();
+  const auto parameters = find_key(text, "parameters", find_key(text, "name"));
+  const auto sample_section = find_key(text, "samples", parameters);
+  const auto samples = extract_array(text, "x", sample_section);
+  const auto fs = extract_number(text, "fs", parameters);
+
+  const auto explicit_three = ringdown::RingDownAnalyzer{}.analyze_array(samples, fs, 3.0);
+  const auto implicit_default = ringdown::RingDownAnalyzer{}.analyze_array(samples, fs);
+  require_near(implicit_default.nls.frequency_hz, explicit_three.nls.frequency_hz, 0.0,
+               "default max_tau_multiplier should be 3.0");
+  require_near(implicit_default.dft.frequency_hz, explicit_three.dft.frequency_hz, 0.0,
+               "default max_tau_multiplier should be 3.0 (DFT)");
+}
+
+RINGDOWN_TEST(analyzer_fixture_profile_q_and_q_diagnostics) {
+  const auto text = fixture_text();
+  const auto parameters = find_key(text, "parameters", find_key(text, "name"));
+  const auto sample_section = find_key(text, "samples", parameters);
+  const auto samples = extract_array(text, "x", sample_section);
+  const auto fs = extract_number(text, "fs", parameters);
+  const auto analysis = find_key(text, "array_analysis");
+
+  const auto result = ringdown::RingDownAnalyzer{}.analyze_array(samples, fs);
+  ringdown::test::require(text.find("\"Q_nls\": null", analysis) != std::string::npos,
+                          "fixture should mark invalid user-facing NLS Q as null");
+  ringdown::test::require(text.find("\"Q_dft\": null", analysis) != std::string::npos,
+                          "fixture should mark invalid user-facing DFT Q as null");
+  require_near(result.profile_q.Q.value_or(0.0), extract_number(text, "Q_profile", analysis), 1.0e-3,
+               "profile Q");
+  ringdown::test::require(result.profile_q.valid == extract_json_bool(text, "Q_profile_valid", analysis),
+                         "profile Q valid flag");
+  ringdown::test::require(result.profile_q.status == extract_json_string(text, "Q_profile_status", analysis),
+                         "profile Q status");
+  ringdown::test::require(
+      result.profile_q.n_grid == static_cast<std::size_t>(extract_number(text, "Q_profile_n_grid", analysis)),
+      "profile Q grid count");
+  require_near(result.nls_q.raw.value_or(0.0), extract_number(text, "Q_nls_raw", analysis), 1.0e-3,
+               "raw NLS Q");
+  require_near(result.dft_q.raw.value_or(0.0), extract_number(text, "Q_dft_raw", analysis), 1.0e-3,
+               "raw DFT Q");
+  ringdown::test::require(result.tau_est_low_confidence ==
+                              extract_json_bool(text, "tau_est_low_confidence", analysis),
+                          "tau seed low-confidence flag");
+}
+
 RINGDOWN_TEST(loader_and_analyzer_run_file_workflows) {
   const auto text = fixture_text();
   const auto file_fixtures = find_key(text, "file_fixtures");
@@ -404,6 +493,22 @@ RINGDOWN_TEST(batch_workflow_matches_pipeline_fixture) {
                               static_cast<std::size_t>(extract_number(text, "frequency_diff_count", batch)),
                           "batch uncertainty comparison count");
 
+  const auto q_stats_section = find_key(text, "q_factor_statistics", batch);
+  const auto q_stats = analyzer.get_q_factor_statistics(false);
+  ringdown::test::require(q_stats.n_total == static_cast<std::size_t>(extract_number(text, "n_total", q_stats_section)),
+                          "batch Q stats n_total");
+  ringdown::test::require(q_stats.n_valid == static_cast<std::size_t>(extract_number(text, "n_valid", q_stats_section)),
+                          "batch Q stats n_valid");
+  ringdown::test::require(q_stats.n_skipped == static_cast<std::size_t>(extract_number(text, "n_skipped", q_stats_section)),
+                          "batch Q stats n_skipped");
+  ringdown::test::require(q_stats.n_invalid == static_cast<std::size_t>(extract_number(text, "n_invalid", q_stats_section)),
+                          "batch Q stats n_invalid");
+  ringdown::test::require(
+      q_stats.n_profile_limits == static_cast<std::size_t>(extract_number(text, "n_profile_limits", q_stats_section)),
+      "batch Q stats n_profile_limits");
+  ringdown::test::require(q_stats.include_invalid == extract_json_bool(text, "include_invalid", q_stats_section),
+                          "batch Q stats include_invalid flag");
+
   auto parallel_analyzer = ringdown::BatchRingDownAnalyzer{};
   const auto parallel_processed =
       parallel_analyzer.process_files({reference_fixture_path("moku_small.csv").string(),
@@ -443,6 +548,18 @@ RINGDOWN_TEST(monte_carlo_runs_deterministically) {
   const auto fixture_result = ringdown::MonteCarloAnalyzer{}.run(fixture_options);
   ringdown::test::require(fixture_result.nls_frequency_errors.size() == python_nls_errors.size(),
                           "Monte Carlo fixture trial count");
+  for (const auto& value : fixture_result.nls_frequency_errors) {
+    ringdown::test::require(std::isfinite(value), "Monte Carlo NLS frequency errors should be finite");
+  }
+  for (const auto& value : fixture_result.dft_frequency_errors) {
+    ringdown::test::require(std::isfinite(value), "Monte Carlo DFT frequency errors should be finite");
+  }
+  for (const auto& value : fixture_result.nls_q_errors) {
+    ringdown::test::require(std::isfinite(value), "Monte Carlo NLS Q errors should be finite");
+  }
+  for (const auto& value : fixture_result.dft_q_errors) {
+    ringdown::test::require(std::isfinite(value), "Monte Carlo DFT Q errors should be finite");
+  }
   ringdown::test::require(!ringdown::to_json(fixture_result).empty(), "Monte Carlo JSON export");
 }
 

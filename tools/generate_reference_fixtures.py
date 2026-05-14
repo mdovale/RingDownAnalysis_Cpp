@@ -77,7 +77,7 @@ def main() -> int:
     nls = NLSFrequencyEstimator(tau_known=None).estimate_full(x, signal.fs)
     dft = DFTFrequencyEstimator(window="rect").estimate_full(x, signal.fs)
     analyzer = RingDownAnalyzer()
-    analysis = analyzer.analyze_array(t=t, data=x, max_tau_multiplier=1.0, max_nfev=250)
+    analysis = analyzer.analyze_array(t=t, data=x, max_nfev=250)
 
     deterministic = RingDownSignal(f0=7.25, fs=128.0, N=64, A0=0.8, snr_db=300.0, Q=2500.0)
     deterministic_phi0 = 0.35
@@ -135,12 +135,13 @@ def main() -> int:
     moku[0, 0]["data"] = moku_data
     savemat(mat_path, {"moku": moku})
 
-    csv_analysis = analyzer.analyze_file(str(csv_path), max_tau_multiplier=1.0, max_nfev=250)
-    mat_analysis = analyzer.analyze_file(str(mat_path), max_tau_multiplier=1.0, max_nfev=250)
+    csv_analysis = analyzer.analyze_file(str(csv_path), max_nfev=250)
+    mat_analysis = analyzer.analyze_file(str(mat_path), max_nfev=250)
 
     batch = BatchRingDownAnalyzer()
     batch_process = batch.process_files([str(csv_path), str(mat_path)], verbose=False, n_jobs=1)
     batch.calculate_q_factors()
+    q_stats = batch.get_q_factor_statistics(include_invalid=False)
     batch_summary = batch.get_summary_table()
     batch_consistency = batch.consistency_analysis()
     batch_uncertainty = batch.crlb_comparison_analysis()
@@ -156,33 +157,67 @@ def main() -> int:
         seed=11,
     )
 
-    def analysis_scalars(result: dict[str, Any]) -> dict[str, Any]:
-        return {
-            key: _finite_scalar(value)
-            for key, value in result.items()
-            if key
-            in {
-                "fs",
-                "tau_seed",
-                "tau_full_init",
-                "tau_est",
-                "tau_nls",
-                "tau_dft",
-                "tau_model",
-                "f_nls",
-                "f_dft",
-                "Q_nls",
-                "Q_dft",
-                "A0_est",
-                "sigma_est",
-                "plugin_crlb_var_f",
-                "plugin_crlb_std_f",
-                "N",
-                "N_crop",
-                "T",
-                "T_crop",
-            }
-        }
+    def analysis_fields(result: dict[str, Any]) -> dict[str, Any]:
+        """Scalar / bool / short-string fields for C++ fixture parity (no large grids)."""
+
+        float_keys = (
+            "fs",
+            "tau_seed",
+            "tau_full_init",
+            "tau_est",
+            "tau_nls",
+            "tau_dft",
+            "tau_model",
+            "f_nls",
+            "f_dft",
+            "Q_nls",
+            "Q_dft",
+            "Q_nls_raw",
+            "Q_dft_raw",
+            "Q_pre_crop",
+            "Q_profile",
+            "Q_profile_rss_min",
+            "Q_profile_sigma",
+            "Q_profile_dof",
+            "Q_profile_n_grid",
+            "A0_est",
+            "sigma_est",
+            "plugin_crlb_var_f",
+            "plugin_crlb_std_f",
+            "N",
+            "N_crop",
+            "T",
+            "T_crop",
+        )
+        bool_keys = (
+            "Q_nls_valid",
+            "Q_dft_valid",
+            "Q_profile_valid",
+            "tau_est_low_confidence",
+            "tau_est_at_lower_bound",
+            "tau_est_at_upper_bound",
+            "tau_nls_at_lower_bound",
+            "tau_nls_at_upper_bound",
+            "tau_dft_at_lower_bound",
+            "tau_dft_at_upper_bound",
+        )
+        str_keys = (
+            "Q_nls_status",
+            "Q_dft_status",
+            "Q_profile_status",
+            "Q_profile_method",
+        )
+        out: dict[str, Any] = {}
+        for key in float_keys:
+            if key in result:
+                out[key] = _finite_scalar(result[key])
+        for key in bool_keys:
+            if key in result:
+                out[key] = bool(result[key])
+        for key in str_keys:
+            if key in result and result[key] is not None:
+                out[key] = str(result[key])
+        return out
 
     case = {
         "name": "synthetic_5hz_seed42",
@@ -236,7 +271,7 @@ def main() -> int:
             },
         },
         "array_analysis": {
-            **analysis_scalars(analysis),
+            **analysis_fields(analysis),
         },
         "file_fixtures": {
             "csv": {
@@ -252,11 +287,11 @@ def main() -> int:
                     "sigma": file_signal.sigma,
                     "phi0": file_phi0,
                 },
-                "analysis": analysis_scalars(csv_analysis),
+                "analysis": analysis_fields(csv_analysis),
             },
             "mat": {
                 "path": "moku_small.mat",
-                "analysis": analysis_scalars(mat_analysis),
+                "analysis": analysis_fields(mat_analysis),
                 "v2_first": float((x_file * 0.5 - np.mean(x_file * 0.5))[0]),
             },
         },
@@ -264,7 +299,20 @@ def main() -> int:
             "success_count": len(batch_process.results),
             "failure_count": len(batch_process.failed_files),
             "summary_rows": len(batch_summary["data"]),
-            "q_values": [float(value) for value in batch.get_q_factor_statistics()["values"]],
+            "q_values": [float(value) for value in q_stats["values"]],
+            "q_factor_statistics": {
+                "n_total": int(q_stats["n_total"]),
+                "n_valid": int(q_stats["n_valid"]),
+                "n_skipped": int(q_stats["n_skipped"]),
+                "n_invalid": int(q_stats["n_invalid"]),
+                "n_profile_limits": int(q_stats["n_profile_limits"]),
+                "include_invalid": bool(q_stats["include_invalid"]),
+                "mean": _finite_scalar(q_stats.get("mean")),
+                "std": _finite_scalar(q_stats.get("std")),
+                "min": _finite_scalar(q_stats.get("min")),
+                "max": _finite_scalar(q_stats.get("max")),
+                "range": _finite_scalar(q_stats.get("range")),
+            },
             "nls_mean": float(batch_consistency["nls_mean"]),
             "dft_mean": float(batch_consistency["dft_mean"]),
             "frequency_diff_count": len(batch_uncertainty["frequency_diffs"]),
