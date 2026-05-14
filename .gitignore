@@ -1,6 +1,6 @@
 .DS_Store
 
-# Local reference checkout used for porting context; do not vendor it here.
+# Legacy local scratch/reference directories are not part of this repo.
 .read-only/
 
 # CMake and build products.
