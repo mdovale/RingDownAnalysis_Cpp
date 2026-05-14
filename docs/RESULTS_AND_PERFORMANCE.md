@@ -25,25 +25,45 @@ cmake --build --preset release
 Analyze one file:
 
 ```bash
-build/release/apps/ringdown_cli analyze path/to/file.csv > result.json
-build/release/apps/ringdown_cli analyze path/to/file.mat > result.json
-build/release/apps/ringdown_cli analyze path/to/file.zip > result.json
+build/release/apps/ringdown analyze path/to/file.csv > result.json
+build/release/apps/ringdown analyze path/to/file.mat > result.json
+build/release/apps/ringdown analyze path/to/file.zip > result.json
 ```
 
 Analyze a batch:
 
 ```bash
-build/release/apps/ringdown_cli batch path/to/a.csv path/to/b.mat path/to/c.zip > batch.json
+build/release/apps/ringdown batch --workers 4 --report minimal path/to/data-dir > batch.json
+build/release/apps/ringdown batch --file-list paths.txt --report full --progress > batch_report.json
 ```
+
+`ringdown` is the primary command name. `ringdown_cli` is still built as a
+compatibility name, but new docs and examples should prefer `ringdown`. Batch
+directory inputs include `.csv`, `.mat`, and `.zip`; ZIP loading keeps the
+library rule that each archive must contain exactly one CSV entry. Per-file
+batch failures are included in JSON and warn on stderr by default. Add
+`--fail-on-error` when any failed input should make the command return nonzero.
+Use `@paths.txt` or `--file-list paths.txt` for large batches that should not
+be expanded through shell argv.
 
 Run a deterministic Monte Carlo study:
 
 ```bash
-build/release/apps/ringdown_cli monte-carlo 100 100000 8 > monte_carlo.json
+build/release/apps/ringdown monte-carlo \
+  --trials 100 \
+  --samples 100000 \
+  --workers 8 \
+  --seed 42 \
+  --frequency-hz 5 \
+  --sample-rate-hz 100 \
+  --snr-db 60 \
+  --quality-factor 10000 \
+  > monte_carlo.json
 ```
 
-The arguments are trial count, samples per trial, and worker count. Omitted
-arguments use the C++ defaults.
+The Monte Carlo CLI maps flags onto `MonteCarloOptions` and its nested
+`SignalParameters`. Legacy positional values for trial count, sample count, and
+worker count are still accepted, but flags are preferred for reproducibility.
 
 ## Python/Jupyter Inspection
 
@@ -76,7 +96,7 @@ with the release binary.
 MAT validation command:
 
 ```bash
-build/release/apps/ringdown_cli analyze \
+build/release/apps/ringdown analyze \
   "../RingDownAnalysis/data/MTSRingdownFirstAttempt_20250826_163810 1.mat"
 ```
 
@@ -95,7 +115,7 @@ Observed result:
 CSV validation command:
 
 ```bash
-build/release/apps/ringdown_cli analyze \
+build/release/apps/ringdown analyze \
   "../RingDownAnalysis/data/MTS_ringdown_050_laser_out_Test5_20250901_224711_1.5e-6mbar.csv"
 ```
 

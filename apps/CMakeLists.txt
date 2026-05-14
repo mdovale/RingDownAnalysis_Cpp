@@ -1,3 +1,7 @@
+add_executable(ringdown ringdown_cli.cpp)
+target_link_libraries(ringdown PRIVATE RingDownAnalysisCpp::ringdownanalysis)
+ringdown_apply_project_options(ringdown)
+
 add_executable(ringdown_cli ringdown_cli.cpp)
 target_link_libraries(ringdown_cli PRIVATE RingDownAnalysisCpp::ringdownanalysis)
 ringdown_apply_project_options(ringdown_cli)

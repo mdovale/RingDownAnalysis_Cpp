@@ -269,6 +269,11 @@ ProcessResult BatchRingDownAnalyzer::process_files(const std::vector<std::string
   return ProcessResult{results_, failed};
 }
 
+ProcessResult BatchRingDownAnalyzer::process_files(const std::vector<std::string>& filepaths,
+                                                   const BatchProcessOptions& options) {
+  return process_files(filepaths, options.worker_count, options.progress);
+}
+
 std::vector<double> BatchRingDownAnalyzer::calculate_q_factors(const bool include_invalid) {
   auto values = std::vector<double>{};
   values.reserve(results_.size());
@@ -740,6 +745,15 @@ std::string to_json_batch_report(BatchRingDownAnalyzer& batch,
   out << "  }\n";
   out << "}\n";
   return out.str();
+}
+
+std::string to_json_batch_export(BatchRingDownAnalyzer& batch,
+                                 const ProcessResult& process,
+                                 BatchExportOptions options) {
+  if (options.mode == BatchExportMode::full) {
+    return to_json_batch_report(batch, process, options.report);
+  }
+  return to_json(process);
 }
 
 } // namespace ringdown

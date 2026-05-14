@@ -52,11 +52,20 @@ but do not vendor it into this repository.
 
 ## CLI
 
+`ringdown` is the primary user-facing command. The `ringdown_cli` target is
+still built as a compatibility name during the migration.
+
 ```bash
-build/dev/apps/ringdown_cli analyze path/to/data.csv
-build/dev/apps/ringdown_cli analyze path/to/data.mat
-build/dev/apps/ringdown_cli analyze path/to/data.zip
-build/dev/apps/ringdown_cli batch path/to/a.csv path/to/b.mat path/to/c.zip
-build/dev/apps/ringdown_cli monte-carlo 100 100000 8
-build/dev/apps/ringdown_cli monte-carlo-smoke
+build/dev/apps/ringdown analyze path/to/data.csv
+build/dev/apps/ringdown analyze path/to/data.mat
+build/dev/apps/ringdown analyze path/to/data.zip
+build/dev/apps/ringdown batch --workers 4 --report minimal path/to/data-dir
+build/dev/apps/ringdown batch --file-list paths.txt --report full --progress
+build/dev/apps/ringdown monte-carlo --trials 100 --samples 100000 --workers 8 --seed 42
+build/dev/apps/ringdown monte-carlo-smoke
 ```
+
+Batch directory inputs discover `.csv`, `.mat`, and single-CSV `.zip` archives.
+By default per-file failures are reported in JSON and produce a warning on
+stderr; add `--fail-on-error` when any failed file should make the command
+return nonzero.

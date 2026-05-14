@@ -174,7 +174,7 @@ int main(int argc, char** argv) {
             gib * static_cast<double>(1024ULL * 1024ULL * 1024ULL));
       } else if (arg == "--no-file-size-limit") {
         max_file_size_bytes = std::nullopt;
-      } else if (arg == "--fail-on-file-error") {
+      } else if (arg == "--fail-on-file-error" || arg == "--fail-on-error") {
         fail_on_file_error = true;
       } else if (arg == "--progress") {
         progress_enabled = true;
@@ -186,10 +186,10 @@ int main(int argc, char** argv) {
                   << "  --data-dir <path>    default: ../RingDownAnalysis/data or "
                      "RINGDOWN_EXAMPLES_DATA\n"
                   << "  --workers <n>        default: 1\n"
-                  << "  --max-files <n>      optional cap after sorting (CSV then MAT)\n"
+                  << "  --max-files <n>      optional cap after sorting (CSV, MAT, then ZIP)\n"
                   << "  --max-file-size-gb <n> default: 1; safety cap before parsing\n"
                   << "  --no-file-size-limit disable the input file-size safety cap\n"
-                  << "  --fail-on-file-error return nonzero when any file fails\n"
+                  << "  --fail-on-error      return nonzero when any file fails\n"
                   << "  --progress           print per-file timing to stderr\n"
                   << "  --notebook-report    include raw waveform arrays in batch_report.json\n";
         return 0;
@@ -203,12 +203,16 @@ int main(int argc, char** argv) {
 
     auto csv_paths = sorted_paths_with_suffix(data_dir, ".csv");
     auto mat_paths = sorted_paths_with_suffix(data_dir, ".mat");
+    auto zip_paths = sorted_paths_with_suffix(data_dir, ".zip");
     auto filepaths = std::vector<std::string>{};
-    filepaths.reserve(csv_paths.size() + mat_paths.size());
+    filepaths.reserve(csv_paths.size() + mat_paths.size() + zip_paths.size());
     for (const auto& path : csv_paths) {
       filepaths.push_back(path.string());
     }
     for (const auto& path : mat_paths) {
+      filepaths.push_back(path.string());
+    }
+    for (const auto& path : zip_paths) {
       filepaths.push_back(path.string());
     }
     if (max_files.has_value() && filepaths.size() > *max_files) {
@@ -237,7 +241,7 @@ int main(int argc, char** argv) {
 
     const auto total_start = std::chrono::steady_clock::now();
     const auto process_start = std::chrono::steady_clock::now();
-    const auto processed = batch.process_files(filepaths, worker_count, progress);
+    const auto processed = batch.process_files(filepaths, ringdown::BatchProcessOptions{worker_count, progress});
     const auto process_ms = elapsed_milliseconds(process_start);
 
     const auto report_start = std::chrono::steady_clock::now();

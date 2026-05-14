@@ -1,6 +1,15 @@
-add_executable(ringdown_tests test_algorithms.cpp test_main.cpp test_version.cpp)
+set(RINGDOWN_TEST_SOURCES test_algorithms.cpp test_main.cpp test_version.cpp)
+if(TARGET ringdown)
+  list(APPEND RINGDOWN_TEST_SOURCES test_cli.cpp)
+endif()
+
+add_executable(ringdown_tests ${RINGDOWN_TEST_SOURCES})
 target_link_libraries(ringdown_tests PRIVATE RingDownAnalysisCpp::ringdownanalysis ZLIB::ZLIB)
 target_compile_definitions(ringdown_tests PRIVATE RINGDOWN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+if(TARGET ringdown)
+  target_compile_definitions(ringdown_tests PRIVATE RINGDOWN_APP_PATH="$<TARGET_FILE:ringdown>")
+  add_dependencies(ringdown_tests ringdown)
+endif()
 ringdown_apply_project_options(ringdown_tests)
 
 add_test(NAME ringdown_tests COMMAND ringdown_tests)

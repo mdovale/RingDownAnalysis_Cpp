@@ -40,7 +40,21 @@ It does **not** prescribe a specific third-party argument parser; choose one con
 3. **Monte Carlo CLI**  
    Expose at least **seed** and key **signal** fields (`frequency_hz`, `sample_rate_hz`, `snr_db`, `quality_factor`, etc.) via flags or `--config` JSON that deserializes into `MonteCarloOptions` / nested `SignalParameters`.
 
-## Current Status
+## Implementation status
+
+- Implemented in this pass:
+  - `BatchProcessOptions`, `BatchExportMode`, `BatchExportOptions`, and
+    `to_json_batch_export` as additive library API.
+  - Primary `ringdown` executable target, with `ringdown_cli` still built as a
+    compatibility binary.
+  - `ringdown batch` directory discovery for `.csv`, `.mat`, and `.zip`, plus
+    `@paths.txt` / `--file-list`, `--workers`, `--progress`,
+    `--fail-on-error`, and `--report minimal|full`.
+  - `ringdown monte-carlo` flags for seed, worker/trial/sample counts, and core
+    `SignalParameters` fields.
+  - CLI integration coverage through CTest for the built `ringdown` binary.
+
+## Previous Status
 
 - **Not implemented**: this document records **design intent** from a planning discussion only.
 - **Existing behavior** unchanged:
@@ -87,30 +101,32 @@ It does **not** prescribe a specific third-party argument parser; choose one con
 
 **Library**
 
-- [ ] Batch workflow documented (or encoded in types) as **minimal vs full** export; new readers can choose without reading two binaries.
-- [ ] Optional `BatchProcessOptions` (or documented pattern) groups workers and progress for `process_files`, while documenting how analyzer / loader file size limits are configured.
-- [ ] `MonteCarloOptions` is the documented configuration surface for Monte Carlo; tests cover any new parsing path.
+- [x] Batch workflow documented (or encoded in types) as **minimal vs full** export; new readers can choose without reading two binaries.
+- [x] Optional `BatchProcessOptions` (or documented pattern) groups workers and progress for `process_files`, while documenting how analyzer / loader file size limits are configured.
+- [x] `MonteCarloOptions` is the documented configuration surface for Monte Carlo; tests cover any new parsing path.
 
 **CLI / product**
 
-- [ ] Users can run `ringdown batch` over a directory of **`.zip`** files without hand-globbing every path; document the product story in `README.md` / `docs/RESULTS_AND_PERFORMANCE.md`.
-- [ ] Monte Carlo subcommand exposes **seed** and core **signal** parameters (or `--config` JSON).
-- [ ] Consistent **exit code** policy documented and implemented for batch failure modes.
-- [ ] Large batch inputs avoid argv explosion (file list or `@file`), if scoped in this effort.
-- [ ] User-facing docs and examples invoke `ringdown`; any remaining `ringdown_cli` references are explicitly marked as legacy / compatibility.
+- [x] Users can run `ringdown batch` over a directory of **`.zip`** files without hand-globbing every path; document the product story in `README.md` / `docs/RESULTS_AND_PERFORMANCE.md`.
+- [x] Monte Carlo subcommand exposes **seed** and core **signal** parameters (or `--config` JSON).
+- [x] Consistent **exit code** policy documented and implemented for batch failure modes.
+- [x] Large batch inputs avoid argv explosion (file list or `@file`), if scoped in this effort.
+- [x] User-facing docs and examples invoke `ringdown`; any remaining `ringdown_cli` references are explicitly marked as legacy / compatibility.
 
 **Quality**
 
-- [ ] Existing golden / parity tests pass; new tests for new flags and directory zip discovery.
-- [ ] CLI integration tests exercise the installed / built binary name (`ringdown`) through CTest or an equivalent harness.
-- [ ] Docs updated so `ringdown` vs legacy `ringdown_cli` and example binaries are unambiguous for new contributors.
+- [x] Existing golden / parity tests pass; new tests for new flags and directory zip discovery.
+- [x] CLI integration tests exercise the installed / built binary name (`ringdown`) through CTest or an equivalent harness.
+- [x] Docs updated so `ringdown` vs legacy `ringdown_cli` and example binaries are unambiguous for new contributors.
 
-## Open decisions
+## Resolved decisions
 
-- Third-party argument parser vs small local parser.
-- Whether `@paths.txt` / file-list input ships in the first CLI unification pass.
-- Whether Monte Carlo configuration is flags-only, JSON `--config`, or both.
-- Whether `ringdown_cli` remains as a compatibility alias, a deprecated target, or is renamed outright before wider use.
+- Use a small local parser for this pass; no new third-party dependency.
+- Ship both `@paths.txt` and `--file-list paths.txt` for large batch inputs.
+- Use flags for Monte Carlo configuration in this pass; no JSON `--config`
+  parser was added.
+- Keep `ringdown_cli` as a compatibility binary while making `ringdown` the
+  primary user-facing target.
 
 ## Recommended next steps
 

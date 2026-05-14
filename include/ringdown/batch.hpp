@@ -59,6 +59,21 @@ struct BatchProgressEvent {
 using BatchProgressCallback = std::function<void(const BatchProgressEvent&)>;
 
 /**
+ * @brief Options controlling one `process_files` call.
+ *
+ * File-size limits are intentionally configured on the `RingDownAnalyzer`
+ * owned by `BatchRingDownAnalyzer`, because the loader enforces those limits
+ * while opening each file. This struct groups the batch-only concerns: worker
+ * scheduling and progress reporting.
+ */
+struct BatchProcessOptions {
+  /// Number of asynchronous workers; values less than two run serially.
+  std::size_t worker_count{1};
+  /// Optional progress callback invoked from worker threads.
+  BatchProgressCallback progress;
+};
+
+/**
  * @brief Basic descriptive statistics for a collection of values.
  */
 struct SummaryStatistics {
@@ -128,6 +143,26 @@ struct BatchSummaryRow {
 struct BatchReportOptions {
   /// Include notebook-style per-file results with waveform arrays.
   bool include_notebook_results{true};
+};
+
+/**
+ * @brief Public export modes for a processed batch.
+ */
+enum class BatchExportMode {
+  /// Compact per-file successes plus failures via `to_json(ProcessResult)`.
+  minimal,
+  /// Full summary report via `to_json_batch_report`.
+  full,
+};
+
+/**
+ * @brief Options selecting the JSON export for a processed batch workflow.
+ */
+struct BatchExportOptions {
+  /// Which batch JSON shape to produce.
+  BatchExportMode mode{BatchExportMode::minimal};
+  /// Options used when `mode == BatchExportMode::full`.
+  BatchReportOptions report;
 };
 
 /**
@@ -230,6 +265,19 @@ public:
                                             BatchProgressCallback progress = {});
 
   /**
+   * @brief Analyzes each filepath using grouped batch process options.
+   *
+   * @param filepaths Input files to process.
+   * @param options Worker-count and progress callback options.
+   * @return Successful results and per-file failures.
+   *
+   * @note Loader file-size limits come from the `RingDownAnalyzer` supplied to
+   *       the `BatchRingDownAnalyzer` constructor.
+   */
+  [[nodiscard]] ProcessResult process_files(const std::vector<std::string>& filepaths,
+                                            const BatchProcessOptions& options);
+
+  /**
    * @brief Selects preferred Q values from the stored results.
    *
    * @param include_invalid If true, use finite raw fallback Q values when the
@@ -284,5 +332,12 @@ private:
 [[nodiscard]] std::string to_json_batch_report(BatchRingDownAnalyzer& batch,
                                                const ProcessResult& process,
                                                BatchReportOptions options = {});
+
+/**
+ * @brief Serializes a processed batch using a selected export mode.
+ */
+[[nodiscard]] std::string to_json_batch_export(BatchRingDownAnalyzer& batch,
+                                               const ProcessResult& process,
+                                               BatchExportOptions options = {});
 
 } // namespace ringdown
