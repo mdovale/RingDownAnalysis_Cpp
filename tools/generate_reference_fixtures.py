@@ -5,7 +5,7 @@ Run this from the repository root after installing the reference Python project:
 
     python tools/generate_reference_fixtures.py --output tests/fixtures/reference
 
-The script imports the local reference checkout from `.read-only/RingDownAnalysis`
+The script imports the sibling reference checkout from `../RingDownAnalysis`
 by default. It writes JSON fixtures with deterministic synthetic signals and
 selected estimator outputs. Agent #1 should expand this early, before porting
 each algorithm.
@@ -43,7 +43,7 @@ def main() -> int:
     parser.add_argument(
         "--reference-root",
         type=Path,
-        default=Path(".read-only/RingDownAnalysis"),
+        default=Path(__file__).resolve().parents[1].parent / "RingDownAnalysis",
         help="Path to the Python RingDownAnalysis checkout",
     )
     parser.add_argument(

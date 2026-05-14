@@ -89,9 +89,10 @@ void measure_void(std::string_view name, Function&& function) {
       std::filesystem::path{"tests/fixtures/reference"},
       std::filesystem::path{"../tests/fixtures/reference"},
       std::filesystem::path{"../../tests/fixtures/reference"},
-      std::filesystem::path{".read-only/RingDownAnalysis/data"},
-      std::filesystem::path{"../.read-only/RingDownAnalysis/data"},
-      std::filesystem::path{"../../.read-only/RingDownAnalysis/data"},
+      std::filesystem::path{"../RingDownAnalysis/data"},
+      std::filesystem::path{"../../RingDownAnalysis/data"},
+      std::filesystem::path{"../../../RingDownAnalysis/data"},
+      std::filesystem::path{"../../../../RingDownAnalysis/data"},
   };
   for (const auto& candidate : candidates) {
     if (const auto path = first_file_with_suffix(candidate, suffix)) {

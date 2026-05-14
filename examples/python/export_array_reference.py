@@ -16,11 +16,11 @@ def _repo_root() -> Path:
 def _add_ringdown_to_path() -> Path:
     root = _repo_root()
     env = os.environ.get("RINGDOWN_PYTHON_REF", "").strip()
-    ref = Path(env) if env else (root / ".read-only" / "RingDownAnalysis")
+    ref = Path(env) if env else (root.parent / "RingDownAnalysis")
     if not ref.is_dir():
         raise SystemExit(
             f"Missing Python reference checkout: {ref}\n"
-            "Set RINGDOWN_PYTHON_REF to the RingDownAnalysis repo root, or use .read-only/RingDownAnalysis."
+            "Set RINGDOWN_PYTHON_REF to the RingDownAnalysis repo root, or use ../RingDownAnalysis."
         )
     sys.path.insert(0, str(ref))
     return ref

@@ -128,9 +128,10 @@ void write_text(const std::filesystem::path& path, const std::string& text) {
     return env;
   }
   const auto candidates = std::vector<std::filesystem::path>{
-      std::filesystem::path{".read-only/RingDownAnalysis/data"},
-      std::filesystem::path{"../.read-only/RingDownAnalysis/data"},
-      std::filesystem::path{"../../.read-only/RingDownAnalysis/data"},
+      std::filesystem::path{"../RingDownAnalysis/data"},
+      std::filesystem::path{"../../RingDownAnalysis/data"},
+      std::filesystem::path{"../../../RingDownAnalysis/data"},
+      std::filesystem::path{"../../../../RingDownAnalysis/data"},
   };
   for (const auto& candidate : candidates) {
     if (std::filesystem::exists(candidate)) {
@@ -182,7 +183,7 @@ int main(int argc, char** argv) {
       } else if (arg == "--help" || arg == "-h") {
         std::cout << "Usage: batch_analysis_example [options]\n"
                   << "  --output-dir <path>  default: results/examples/batch_analysis_cpp\n"
-                  << "  --data-dir <path>    default: .read-only/RingDownAnalysis/data or "
+                  << "  --data-dir <path>    default: ../RingDownAnalysis/data or "
                      "RINGDOWN_EXAMPLES_DATA\n"
                   << "  --workers <n>        default: 1\n"
                   << "  --max-files <n>      optional cap after sorting (CSV then MAT)\n"

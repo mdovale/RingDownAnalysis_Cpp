@@ -17,11 +17,11 @@ def _repo_root() -> Path:
 def _add_ringdown_to_path() -> Path:
     root = _repo_root()
     env = os.environ.get("RINGDOWN_PYTHON_REF", "").strip()
-    ref = Path(env) if env else (root / ".read-only" / "RingDownAnalysis")
+    ref = Path(env) if env else (root.parent / "RingDownAnalysis")
     if not ref.is_dir():
         raise SystemExit(
             f"Missing Python reference checkout: {ref}\n"
-            "Set RINGDOWN_PYTHON_REF to the RingDownAnalysis repo root, or use .read-only/RingDownAnalysis."
+            "Set RINGDOWN_PYTHON_REF to the RingDownAnalysis repo root, or use ../RingDownAnalysis."
         )
     sys.path.insert(0, str(ref))
     return ref
@@ -53,7 +53,7 @@ def main() -> None:
         "--data-dir",
         type=Path,
         default=None,
-        help="Directory with *.csv and *.mat (default: .read-only/RingDownAnalysis/data under repo)",
+        help="Directory with *.csv and *.mat (default: ../RingDownAnalysis/data)",
     )
     parser.add_argument(
         "--output-dir",
@@ -75,7 +75,7 @@ def main() -> None:
     from ringdownanalysis.batch_analyzer import BatchRingDownAnalyzer
 
     root = _repo_root()
-    data_dir = args.data_dir or (root / ".read-only" / "RingDownAnalysis" / "data")
+    data_dir = args.data_dir or (root.parent / "RingDownAnalysis" / "data")
     if not data_dir.is_dir():
         raise SystemExit(f"Data directory not found: {data_dir}")
 
