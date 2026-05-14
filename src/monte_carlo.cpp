@@ -102,16 +102,20 @@ MonteCarloResult MonteCarloAnalyzer::run(const MonteCarloOptions& options) const
     auto trial = TrialResult{};
     try {
       const auto nls = nls_estimator_.estimate_full(generated.samples, options.signal.sample_rate_hz);
-      trial.nls_frequency_error = nls.frequency_hz - options.signal.frequency_hz;
-      if (nls.quality_factor.has_value()) {
+      if (nls.success && std::isfinite(nls.frequency_hz)) {
+        trial.nls_frequency_error = nls.frequency_hz - options.signal.frequency_hz;
+      }
+      if (nls.success && nls.quality_factor.has_value() && std::isfinite(*nls.quality_factor)) {
         trial.nls_q_error = *nls.quality_factor - options.signal.quality_factor;
       }
     } catch (...) {
     }
     try {
       const auto dft = dft_estimator_.estimate_full(generated.samples, options.signal.sample_rate_hz);
-      trial.dft_frequency_error = dft.frequency_hz - options.signal.frequency_hz;
-      if (dft.quality_factor.has_value()) {
+      if (dft.success && std::isfinite(dft.frequency_hz)) {
+        trial.dft_frequency_error = dft.frequency_hz - options.signal.frequency_hz;
+      }
+      if (dft.success && dft.quality_factor.has_value() && std::isfinite(*dft.quality_factor)) {
         trial.dft_q_error = *dft.quality_factor - options.signal.quality_factor;
       }
     } catch (...) {
@@ -146,16 +150,16 @@ MonteCarloResult MonteCarloAnalyzer::run(const MonteCarloOptions& options) const
   }
 
   for (const auto& trial : trials) {
-    if (trial.nls_frequency_error.has_value()) {
+    if (trial.nls_frequency_error.has_value() && std::isfinite(*trial.nls_frequency_error)) {
       result.nls_frequency_errors.push_back(*trial.nls_frequency_error);
     }
-    if (trial.dft_frequency_error.has_value()) {
+    if (trial.dft_frequency_error.has_value() && std::isfinite(*trial.dft_frequency_error)) {
       result.dft_frequency_errors.push_back(*trial.dft_frequency_error);
     }
-    if (trial.nls_q_error.has_value()) {
+    if (trial.nls_q_error.has_value() && std::isfinite(*trial.nls_q_error)) {
       result.nls_q_errors.push_back(*trial.nls_q_error);
     }
-    if (trial.dft_q_error.has_value()) {
+    if (trial.dft_q_error.has_value() && std::isfinite(*trial.dft_q_error)) {
       result.dft_q_errors.push_back(*trial.dft_q_error);
     }
   }
