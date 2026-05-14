@@ -118,6 +118,12 @@ struct ProcessingSlot {
   std::string error_message;
 };
 
+/**
+ * @brief Emits a progress callback event if a callback was supplied.
+ *
+ * @internal This helper centralizes elapsed-time construction so serial and
+ * parallel processing report the same event shape.
+ */
 void report_progress(const BatchProgressCallback& progress,
                      std::size_t index,
                      std::size_t total,
@@ -140,6 +146,13 @@ struct SelectedQ {
   std::string q_status;
 };
 
+/**
+ * @brief Chooses the Q value that batch summaries should aggregate.
+ *
+ * @internal Profile-Q is preferred when available. If profile-Q is unavailable
+ * or invalid, finite raw NLS values are used only when `include_invalid` asks
+ * for diagnostic rather than strictly validated summaries.
+ */
 [[nodiscard]] SelectedQ select_preferred_q(const AnalyzerResult& result, bool include_invalid) {
   const auto has_profile = !result.profile_q.method.empty();
   if (has_profile) {

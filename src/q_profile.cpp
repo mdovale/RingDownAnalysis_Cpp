@@ -92,6 +92,13 @@ struct ProjectionFit {
   double amplitude{0.0};
 };
 
+/**
+ * @brief Solves the linear projection problem for a fixed tau.
+ *
+ * @internal The nonlinear profile varies only tau. For each tau, cosine,
+ * sine, and offset coefficients are solved by linear least squares, and the
+ * residual sum of squares feeds the profile-likelihood statistic.
+ */
 [[nodiscard]] std::optional<ProjectionFit> fit_fixed_tau(const std::vector<double>& t_norm,
                                                         const std::vector<double>& data,
                                                         double f_hat,
@@ -136,6 +143,12 @@ struct ProjectionFit {
   return ProjectionFit{tau, rss, sigma, dof, amplitude};
 }
 
+/**
+ * @brief Interpolates a threshold crossing in log-tau space.
+ *
+ * @internal Profile points are log-spaced, so confidence-bound interpolation is
+ * performed in log(tau) rather than linearly in tau.
+ */
 [[nodiscard]] double crossing_tau(double tau0,
                                  double delta0,
                                  double tau1,
@@ -164,6 +177,13 @@ struct ProjectionFit {
   return dts[dts.size() / 2];
 }
 
+/**
+ * @brief Chooses the tau search interval for the profile grid.
+ *
+ * @internal Explicit bounds are respected after applying the one-sample-period
+ * lower floor. Otherwise the interval expands around the tau seed and at least
+ * to a record-duration multiple to allow open-limit diagnoses.
+ */
 [[nodiscard]] std::pair<double, double> tau_bounds_profile(const std::vector<double>& samples,
                                                          double sample_rate_hz,
                                                          const std::vector<double>& t_norm,
@@ -218,6 +238,12 @@ template <typename Function>
   return 0.5 * (left + right);
 }
 
+/**
+ * @brief Builds a consistently shaped invalid profile-Q result.
+ *
+ * @internal Keeping invalid results centralized avoids partially populated
+ * diagnostics that would complicate JSON exports and batch summaries.
+ */
 [[nodiscard]] QProfileResult invalid_result(std::string status,
                                            std::vector<std::string> reasons,
                                            std::string method,

@@ -15,6 +15,12 @@ namespace ringdown {
 
 namespace {
 
+/**
+ * @brief Computes error statistics for finite successful trial outputs.
+ *
+ * @internal Empty inputs return NaNs so JSON export can represent missing
+ * statistics as `null`.
+ */
 [[nodiscard]] ErrorStatistics statistics(const std::vector<double>& values) {
   if (values.empty()) {
     const auto nan = std::numeric_limits<double>::quiet_NaN();
@@ -43,6 +49,12 @@ struct TrialResult {
   std::optional<double> dft_q_error;
 };
 
+/**
+ * @brief Serializes finite numbers and maps non-finite values to JSON null.
+ *
+ * @internal Monte Carlo outputs may contain NaNs when no successful trials are
+ * available; keeping this conversion local preserves valid JSON.
+ */
 [[nodiscard]] std::string json_number(double value) {
   if (!std::isfinite(value)) {
     return "null";

@@ -13,6 +13,12 @@ namespace ringdown {
 
 namespace {
 
+/**
+ * @brief Fixed numerical controls for the local optimizers.
+ *
+ * @internal These values are implementation tuning for the C++ port and are
+ * not exposed as public API knobs.
+ */
 constexpr auto kGoldenRatioConjugate = 0.6180339887498948482;
 constexpr auto kGoldenSearchIterations = std::size_t{32U};
 constexpr auto kNlsMaxEvaluations = std::size_t{80U};
@@ -92,6 +98,12 @@ void validate_sample_rate(double sample_rate_hz) {
 
 [[nodiscard]] bool is_power_of_two(std::size_t value) { return value != 0U && (value & (value - 1U)) == 0U; }
 
+/**
+ * @brief Approximates the modified Bessel function I0 for Kaiser windows.
+ *
+ * @internal The finite series avoids introducing a special-function dependency
+ * for the beta values used by the estimator.
+ */
 [[nodiscard]] double modified_bessel_i0(double value) {
   auto term = 1.0;
   auto sum = 1.0;
@@ -129,6 +141,14 @@ void validate_sample_rate(double sample_rate_hz) {
   return values;
 }
 
+/**
+ * @brief In-place radix-2 FFT used by the DFT estimator.
+ *
+ * @pre `values.size()` is a power of two.
+ *
+ * @internal Callers pad to a power-of-two length before invoking this helper.
+ * The transform is unnormalized because only relative peak locations are used.
+ */
 void fft(std::vector<std::complex<double>>& values) {
   const auto count = values.size();
   auto reversed = std::size_t{0};
@@ -360,6 +380,13 @@ struct NlsEvaluation {
   return solution;
 }
 
+/**
+ * @brief Fits cosine, sine, and offset coefficients at fixed frequency/tau.
+ *
+ * @internal This variable-projection step keeps tau searches inexpensive: for
+ * each nonlinear tau candidate the linear amplitudes are solved exactly with a
+ * 3x3 normal equation. Rank-deficient systems return `success == false`.
+ */
 [[nodiscard]] LinearFit fit_fixed_frequency_tau(const std::vector<double>& samples,
                                                 double sample_rate_hz,
                                                 double frequency_hz,
@@ -447,6 +474,13 @@ template <typename Function>
   return (left + right) / 2.0;
 }
 
+/**
+ * @brief Produces finite tau search bounds and a clamped initial tau.
+ *
+ * @internal The lower bound is one sample period. The upper bound expands to
+ * include the supplied or envelope-derived seed so optimization does not start
+ * from a clipped value.
+ */
 [[nodiscard]] double sanitize_tau_guess(std::optional<double> tau_guess,
                                         double sample_rate_hz,
                                         std::size_t sample_count,
@@ -492,6 +526,13 @@ template <typename Function>
   return initial;
 }
 
+/**
+ * @brief Evaluates the nonlinear residual model and Gauss-Newton normal system.
+ *
+ * @internal The parameter layout depends on whether tau is estimated. With
+ * fixed tau the fourth fitted parameter is offset; otherwise the fourth is tau
+ * and the fifth is offset.
+ */
 [[nodiscard]] NlsEvaluation evaluate_nls(const std::vector<double>& samples,
                                         double sample_rate_hz,
                                         const std::array<double, 5>& parameters,
@@ -565,6 +606,13 @@ template <typename Function>
   return result;
 }
 
+/**
+ * @brief Runs a bounded Levenberg-Marquardt style NLS fit.
+ *
+ * @internal Bounds keep frequency within a local neighborhood of the DFT seed
+ * and tau within the sanitized positive range. A fit is considered usable if it
+ * converges or accepts at least one improving finite step.
+ */
 [[nodiscard]] BoundedNlsFit fit_bounded_nls(const std::vector<double>& samples,
                                            double sample_rate_hz,
                                            std::optional<double> known_tau,
@@ -687,6 +735,12 @@ template <typename Function>
                        estimate_tau ? std::optional<double>{tau_upper} : std::nullopt};
 }
 
+/**
+ * @brief Shared implementation for the NLS estimator public methods.
+ *
+ * @internal Validation and fallback behavior are centralized here so
+ * `estimate` and `estimate_full` report consistent diagnostics.
+ */
 [[nodiscard]] EstimationResult estimate_with_separable_nls(const std::vector<double>& samples,
                                                            double sample_rate_hz,
                                                            std::optional<double> known_tau,

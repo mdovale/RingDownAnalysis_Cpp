@@ -122,6 +122,12 @@ void validate_samples(const std::vector<double>& samples, const char* source) {
   return {cropped_time, cropped_samples};
 }
 
+/**
+ * @brief Solves the small normal equation used by linearized model fits.
+ *
+ * @internal A rank-deficient design matrix returns `std::nullopt` so callers
+ * can report fallback diagnostics without throwing from numerical singularity.
+ */
 [[nodiscard]] std::optional<std::array<double, 3>> solve_3x3(std::array<std::array<double, 4>, 3> matrix) {
   for (auto col = std::size_t{0}; col < 3U; ++col) {
     auto pivot = col;
@@ -153,6 +159,13 @@ void validate_samples(const std::vector<double>& samples, const char* source) {
   return std::array<double, 3>{matrix[0][3], matrix[1][3], matrix[2][3]};
 }
 
+/**
+ * @brief Parses the Moku CSV row shape used by the Python reference data.
+ *
+ * @internal The first column is time and the fourth column is the primary
+ * sample channel. Returning false lets the stream loader skip header rows only
+ * before data begins.
+ */
 [[nodiscard]] bool parse_csv_data_row(const std::string& line, double& time, double& sample) {
   const auto* cursor = line.c_str();
   auto* end = const_cast<char*>(cursor);
@@ -233,6 +246,12 @@ struct ZipEntry {
   std::uint32_t local_header_offset{0U};
 };
 
+/**
+ * @brief Identifies directory entries in central-directory ZIP metadata.
+ *
+ * @internal Both POSIX and Windows path separators are accepted because ZIP
+ * producers vary in how they mark directory names.
+ */
 [[nodiscard]] bool is_directory_entry(std::string_view name) {
   return !name.empty() && (name.back() == '/' || name.back() == '\\');
 }
@@ -307,6 +326,12 @@ struct ZipEntry {
   return entries;
 }
 
+/**
+ * @brief Selects the single CSV payload accepted from ZIP inputs.
+ *
+ * @internal The loader intentionally supports only archives with exactly one
+ * non-directory CSV entry so downstream analysis has unambiguous provenance.
+ */
 [[nodiscard]] const ZipEntry& select_single_csv_entry(const std::vector<ZipEntry>& entries,
                                                      const std::string& filepath) {
   auto selected = static_cast<const ZipEntry*>(nullptr);
@@ -398,6 +423,12 @@ enum class MatClass : std::uint32_t {
   Double = 6U,
 };
 
+/**
+ * @brief MAT v5 data-element descriptor.
+ *
+ * @internal Small data elements store up to four payload bytes in the tag
+ * itself; regular elements point into the file byte buffer.
+ */
 struct MatElement {
   std::uint32_t type{0U};
   std::uint32_t byte_count{0U};
@@ -406,6 +437,12 @@ struct MatElement {
   bool small{false};
 };
 
+/**
+ * @brief Minimal MAT matrix representation needed by the Moku loader.
+ *
+ * @internal This parser models only double arrays and structs because those are
+ * the MAT v5 shapes needed to reach `moku.data`.
+ */
 struct MatMatrix {
   std::uint32_t class_type{0U};
   std::vector<std::int32_t> dimensions;
@@ -417,6 +454,12 @@ struct MatMatrix {
   std::vector<MatMatrix> fields;
 };
 
+/**
+ * @brief Reads a little-endian scalar from the MAT byte buffer.
+ *
+ * @internal The loader accepts only little-endian MAT v5 files, so no byte-swap
+ * path is implemented here.
+ */
 template <typename T>
 [[nodiscard]] T read_little_endian(const std::vector<unsigned char>& bytes, std::size_t offset) {
   if (offset + sizeof(T) > bytes.size()) {
@@ -525,6 +568,13 @@ template <typename T>
 [[nodiscard]] MatMatrix parse_mat_matrix(const std::vector<unsigned char>& bytes,
                                          const MatElement& matrix_element);
 
+/**
+ * @brief Parses the payload of a MAT matrix element.
+ *
+ * @internal The parser preserves enough structure to navigate `moku.data` while
+ * rejecting compressed elements and unsupported payload shapes earlier in the
+ * loading pipeline.
+ */
 [[nodiscard]] MatMatrix parse_mat_matrix_payload(const std::vector<unsigned char>& bytes,
                                                  std::size_t cursor,
                                                  std::size_t limit) {
@@ -745,6 +795,13 @@ void append_json_string_array(std::ostringstream& out, const std::vector<std::st
   return q.has_value() && std::isfinite(*q) && *q > 0.0;
 }
 
+/**
+ * @brief Applies user-facing validity rules to a raw Q estimate.
+ *
+ * @internal Hard failures remove the Q value from summaries. Warnings keep the
+ * raw value for diagnostics but still withhold a validated user-facing value,
+ * matching the notebook-oriented Python parity fields.
+ */
 [[nodiscard]] QEstimateDiagnostics assess_q_estimate(const std::string& method,
                                                      std::optional<double> raw_q,
                                                      std::optional<double> tau,
@@ -1295,6 +1352,12 @@ LoadedData RingDownDataLoader::load(const std::string& filepath,
 
 namespace {
 
+/**
+ * @brief Loads and normalizes CSV text from either a file or ZIP entry.
+ *
+ * @internal Time is shifted to start at zero and the primary channel is
+ * demeaned here so all loader entry points produce the same analysis contract.
+ */
 LoadedData load_csv_stream(std::istream& file,
                            const std::string& source,
                            std::string file_type,

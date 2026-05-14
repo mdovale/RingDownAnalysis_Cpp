@@ -1,5 +1,16 @@
 #pragma once
 
+/**
+ * @file ringdown.hpp
+ * @brief Umbrella header for the RingDownAnalysis C++ public API.
+ */
+
+/**
+ * @namespace ringdown
+ * @brief Public API for synthetic ringdown generation, estimation, analysis,
+ *        batch processing, and JSON export.
+ */
+
 #include <ringdown/analyzer.hpp>
 #include <ringdown/batch.hpp>
 #include <ringdown/crlb.hpp>
