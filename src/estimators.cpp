@@ -213,6 +213,8 @@ void fft(std::vector<std::complex<double>>& values) {
     return EstimationResult{sample_rate_hz / static_cast<double>(std::max<std::size_t>(samples.size(), 2U)),
                             std::nullopt,
                             std::nullopt,
+                            std::nullopt,
+                            std::nullopt,
                             false,
                             true,
                             "Signal has no resolved AC content after demeaning",
@@ -243,6 +245,8 @@ void fft(std::vector<std::complex<double>>& values) {
     return EstimationResult{frequency,
                             std::nullopt,
                             std::nullopt,
+                            std::nullopt,
+                            std::nullopt,
                             false,
                             true,
                             "DFT peak occurred at the FFT edge; skipping interpolation",
@@ -252,6 +256,8 @@ void fft(std::vector<std::complex<double>>& values) {
   const auto delta = parabolic_peak_delta(power, peak);
   const auto frequency = (static_cast<double>(peak) + delta) * sample_rate_hz / static_cast<double>(dft_size);
   return EstimationResult{frequency,
+                          std::nullopt,
+                          std::nullopt,
                           std::nullopt,
                           std::nullopt,
                           true,
@@ -275,6 +281,8 @@ struct BoundedNlsFit {
   bool success{false};
   bool converged{false};
   std::size_t evaluations{0U};
+  std::optional<double> tau_lower;
+  std::optional<double> tau_upper;
 };
 
 struct NlsEvaluation {
@@ -597,7 +605,14 @@ template <typename Function>
   auto current = evaluate_nls(samples, sample_rate_hz, parameters, known_tau);
   auto evaluations = std::size_t{1U};
   if (!std::isfinite(current.rss)) {
-    return BoundedNlsFit{parameters[1], tau, current.rss, false, false, evaluations};
+    return BoundedNlsFit{parameters[1],
+                         tau,
+                         current.rss,
+                         false,
+                         false,
+                         evaluations,
+                         estimate_tau ? std::optional<double>{tau_lower} : std::nullopt,
+                         estimate_tau ? std::optional<double>{tau_upper} : std::nullopt};
   }
 
   auto lambda = 1.0e-3;
@@ -667,7 +682,9 @@ template <typename Function>
                        current.rss,
                        accepted_step || converged,
                        converged,
-                       evaluations};
+                       evaluations,
+                       estimate_tau ? std::optional<double>{tau_lower} : std::nullopt,
+                       estimate_tau ? std::optional<double>{tau_upper} : std::nullopt};
 }
 
 [[nodiscard]] EstimationResult estimate_with_separable_nls(const std::vector<double>& samples,
@@ -686,6 +703,8 @@ template <typename Function>
     return EstimationResult{init.frequency_hz,
                             known_tau,
                             q,
+                            std::nullopt,
+                            std::nullopt,
                             false,
                             true,
                             "Signal has no resolved AC content after demeaning",
@@ -699,6 +718,8 @@ template <typename Function>
                             known_tau.has_value()
                                 ? std::optional<double>{std::numbers::pi * init.frequency_hz * *known_tau}
                                 : std::nullopt,
+                            std::nullopt,
+                            std::nullopt,
                             false,
                             true,
                             "Bounded NLS fit failed frequency sanity check",
@@ -709,6 +730,8 @@ template <typename Function>
     return EstimationResult{fit.frequency_hz,
                             std::nullopt,
                             std::nullopt,
+                            fit.tau_lower,
+                            fit.tau_upper,
                             false,
                             true,
                             "Bounded NLS fit failed tau sanity check",
@@ -718,6 +741,8 @@ template <typename Function>
   return EstimationResult{fit.frequency_hz,
                           fit.tau,
                           std::numbers::pi * fit.frequency_hz * fit.tau,
+                          fit.tau_lower,
+                          fit.tau_upper,
                           true,
                           false,
                           fit.converged ? "Analytic bounded nonlinear least-squares fit converged"
@@ -765,12 +790,16 @@ EstimationResult DFTFrequencyEstimator::estimate_full(const std::vector<double>&
     result.used_fallback = true;
     result.message = "DFT tau fit failed tau sanity check";
     result.evaluations = tau_evaluations;
+    result.tau_lower_bound = tau_lower;
+    result.tau_upper_bound = tau_upper;
     return result;
   }
 
   result.tau = tau;
   result.quality_factor = std::numbers::pi * result.frequency_hz * tau;
   result.evaluations = tau_evaluations;
+  result.tau_lower_bound = tau_lower;
+  result.tau_upper_bound = tau_upper;
   return result;
 }
 

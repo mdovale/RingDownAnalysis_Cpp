@@ -116,7 +116,7 @@ void validate_samples(const std::vector<double>& samples, const char* source) {
       cropped_samples.push_back(samples[index]);
     }
   }
-  if (cropped_time.size() < 100U) {
+  if (cropped_time.size() < 1000U) {
     return {time, samples};
   }
   return {cropped_time, cropped_samples};
@@ -694,6 +694,141 @@ void append_json_double_array(std::ostringstream& out, const std::vector<double>
   out << ']';
 }
 
+void append_json_string_array(std::ostringstream& out, const std::vector<std::string>& values) {
+  out << '[';
+  for (auto index = std::size_t{0}; index < values.size(); ++index) {
+    if (index != 0U) {
+      out << ',';
+    }
+    out << json_string(values[index]);
+  }
+  out << ']';
+}
+
+[[nodiscard]] double sanitize_tau_guess_uniform(std::optional<double> tau_guess,
+                                               double sample_rate_hz,
+                                               std::size_t sample_count,
+                                               double& lower,
+                                               double& upper) {
+  lower = std::max(1.0 / sample_rate_hz, std::numeric_limits<double>::epsilon());
+  const auto t_last = static_cast<double>(sample_count - 1U) / sample_rate_hz;
+  const auto default_upper = std::max(10.0 * t_last, lower * 10.0);
+  auto guess = tau_guess.value_or(std::max(0.5 * t_last, lower * 2.0));
+  if (!std::isfinite(guess) || guess <= 0.0) {
+    guess = std::max(0.5 * t_last, lower * 2.0);
+  }
+  upper = std::max(default_upper, guess * 1.1);
+  return std::clamp(guess, lower * 1.01, upper * 0.99);
+}
+
+[[nodiscard]] std::pair<bool, bool> near_bound_optional(std::optional<double> value,
+                                                       double lower,
+                                                       double upper,
+                                                       double rtol = 1.0e-4) {
+  if (!value.has_value() || !std::isfinite(*value)) {
+    return {false, false};
+  }
+  const auto v = *value;
+  const auto span = std::max({std::abs(upper - lower), std::abs(upper), std::abs(lower), 1.0});
+  const auto tol = rtol * span;
+  return {std::abs(v - lower) <= tol, std::abs(v - upper) <= tol};
+}
+
+[[nodiscard]] std::pair<bool, bool> near_bound_value(double value,
+                                                    double lower,
+                                                    double upper,
+                                                    double rtol = 1.0e-4) {
+  return near_bound_optional(std::optional<double>{value}, lower, upper, rtol);
+}
+
+[[nodiscard]] bool is_positive_finite_opt(std::optional<double> q) {
+  return q.has_value() && std::isfinite(*q) && *q > 0.0;
+}
+
+[[nodiscard]] QEstimateDiagnostics assess_q_estimate(const std::string& method,
+                                                     std::optional<double> raw_q,
+                                                     std::optional<double> tau,
+                                                     bool success,
+                                                     bool used_fallback,
+                                                     bool tau_at_lower_bound,
+                                                     bool tau_at_upper_bound,
+                                                     bool tau_est_low_confidence,
+                                                     std::optional<double> q_pre_crop,
+                                                     const std::vector<double>& cropped_time) {
+  auto hard = std::vector<std::string>{};
+  auto warn = std::vector<std::string>{};
+
+  if (!success) {
+    hard.push_back(method + "_fit_failed");
+  }
+  if (used_fallback) {
+    hard.push_back(method + "_used_fallback");
+  }
+  if (!tau.has_value() || !std::isfinite(*tau) || *tau <= 0.0) {
+    hard.push_back(method + "_tau_missing_or_nonpositive");
+  }
+  if (tau_at_lower_bound) {
+    hard.push_back(method + "_tau_at_lower_bound");
+  }
+  if (tau_at_upper_bound) {
+    hard.push_back(method + "_tau_at_upper_bound");
+  }
+  if (!is_positive_finite_opt(raw_q)) {
+    hard.push_back(method + "_q_missing_or_nonpositive");
+  }
+
+  std::optional<double> raw_to_pre_crop_ratio;
+  if (is_positive_finite_opt(raw_q) && q_pre_crop.has_value() && std::isfinite(*q_pre_crop) &&
+      *q_pre_crop > 0.0) {
+    raw_to_pre_crop_ratio = *raw_q / *q_pre_crop;
+    if (*raw_to_pre_crop_ratio > 5.0) {
+      hard.push_back(method + "_q_raw_vs_pre_crop_ratio_gt_5");
+    } else if (*raw_to_pre_crop_ratio > 2.0) {
+      warn.push_back(method + "_q_raw_vs_pre_crop_ratio_gt_2");
+    } else if (*raw_to_pre_crop_ratio < 0.5) {
+      warn.push_back(method + "_q_raw_vs_pre_crop_ratio_lt_0_5");
+    }
+  }
+
+  if (tau_est_low_confidence) {
+    warn.push_back("tau_est_low_confidence");
+  }
+
+  if (tau.has_value() && std::isfinite(*tau) && *tau > 0.0 && cropped_time.size() > 1U) {
+    const auto fit_duration = cropped_time.back() - cropped_time.front();
+    if (fit_duration / *tau < 1.0) {
+      warn.push_back(method + "_fit_window_shorter_than_tau");
+    }
+  }
+
+  auto out = QEstimateDiagnostics{};
+  out.raw = raw_q;
+  out.raw_to_pre_crop_ratio = raw_to_pre_crop_ratio;
+  out.tau_at_lower_bound = tau_at_lower_bound;
+  out.tau_at_upper_bound = tau_at_upper_bound;
+
+  if (!hard.empty()) {
+    out.valid = false;
+    out.status = "invalid";
+    out.reasons = hard;
+    out.reasons.insert(out.reasons.end(), warn.begin(), warn.end());
+    out.value = std::nullopt;
+    return out;
+  }
+  if (!warn.empty()) {
+    out.valid = false;
+    out.status = "warning";
+    out.reasons = warn;
+    out.value = std::nullopt;
+    return out;
+  }
+  out.valid = true;
+  out.status = "valid";
+  out.reasons = {};
+  out.value = raw_q;
+  return out;
+}
+
 void append_json_timings_object(std::ostringstream& out, const AnalysisTimingsMs& timings) {
   out << "{\"total\":" << json_number(timings.total) << ",\"load\":" << json_number(timings.load)
       << ",\"normalize\":" << json_number(timings.normalize)
@@ -703,6 +838,7 @@ void append_json_timings_object(std::ostringstream& out, const AnalysisTimingsMs
       << ",\"crop\":" << json_number(timings.crop)
       << ",\"cropped_nls\":" << json_number(timings.cropped_nls)
       << ",\"cropped_dft_tau\":" << json_number(timings.cropped_dft_tau)
+      << ",\"profile_q\":" << json_number(timings.profile_q)
       << ",\"noise_fit\":" << json_number(timings.noise_fit)
       << ",\"crlb\":" << json_number(timings.crlb) << '}';
 }
@@ -714,13 +850,81 @@ void append_json_timings_object(std::ostringstream& out, const AnalysisTimingsMs
   return std::to_string(*value);
 }
 
+void append_q_nls_json_fields(std::ostringstream& out, const QEstimateDiagnostics& d) {
+  out << "  \"Q_nls\": " << optional_number(d.value) << ",\n";
+  out << "  \"Q_nls_raw\": " << optional_number(d.raw) << ",\n";
+  out << "  \"Q_nls_valid\": " << (d.valid ? "true" : "false") << ",\n";
+  out << "  \"Q_nls_status\": " << json_string(d.status) << ",\n";
+  out << "  \"Q_nls_reasons\": ";
+  append_json_string_array(out, d.reasons);
+  out << ",\n";
+  out << "  \"Q_nls_raw_to_pre_crop_ratio\": " << optional_number(d.raw_to_pre_crop_ratio) << ",\n";
+}
+
+void append_q_dft_json_fields(std::ostringstream& out, const QEstimateDiagnostics& d) {
+  out << "  \"Q_dft\": " << optional_number(d.value) << ",\n";
+  out << "  \"Q_dft_raw\": " << optional_number(d.raw) << ",\n";
+  out << "  \"Q_dft_valid\": " << (d.valid ? "true" : "false") << ",\n";
+  out << "  \"Q_dft_status\": " << json_string(d.status) << ",\n";
+  out << "  \"Q_dft_reasons\": ";
+  append_json_string_array(out, d.reasons);
+  out << ",\n";
+  out << "  \"Q_dft_raw_to_pre_crop_ratio\": " << optional_number(d.raw_to_pre_crop_ratio) << ",\n";
+}
+
+void append_profile_q_json_fields(std::ostringstream& out, const QProfileResult& p) {
+  out << "  \"Q_profile\": " << optional_number(p.Q) << ",\n";
+  out << "  \"Q_profile_valid\": " << (p.valid ? "true" : "false") << ",\n";
+  out << "  \"Q_profile_status\": " << json_string(p.status) << ",\n";
+  out << "  \"Q_profile_reasons\": ";
+  append_json_string_array(out, p.reasons);
+  out << ",\n";
+  out << "  \"tau_profile\": " << optional_number(p.tau_hat) << ",\n";
+  out << "  \"f_profile\": " << optional_number(p.f_hat) << ",\n";
+  out << "  \"Q_profile_ci95\": ";
+  if (p.ci95_lower.has_value() && p.ci95_upper.has_value()) {
+    out << '[' << json_number(*p.ci95_lower) << ", " << json_number(*p.ci95_upper) << ']';
+  } else {
+    out << "null";
+  }
+  out << ",\n";
+  out << "  \"Q_profile_lower_limit_95\": " << optional_number(p.lower_limit_95) << ",\n";
+  out << "  \"Q_profile_upper_limit_95\": " << optional_number(p.upper_limit_95) << ",\n";
+  out << "  \"Q_profile_method\": " << json_string(p.method) << ",\n";
+  out << "  \"Q_profile_rss_min\": " << json_number(p.rss_min) << ",\n";
+  out << "  \"Q_profile_sigma\": " << json_number(p.sigma) << ",\n";
+  out << "  \"Q_profile_dof\": " << p.dof << ",\n";
+  out << "  \"Q_profile_n_grid\": " << p.n_grid << ",\n";
+  out << "  \"Q_profile_tau_grid\": ";
+  append_json_double_array(out, p.profile_tau);
+  out << ",\n";
+  out << "  \"Q_profile_q_grid\": ";
+  append_json_double_array(out, p.profile_q);
+  out << ",\n";
+  out << "  \"Q_profile_delta\": ";
+  append_json_double_array(out, p.profile_delta);
+  out << ",\n";
+}
+
+void append_tau_flags_json(std::ostringstream& out, const AnalyzerResult& result) {
+  out << "  \"tau_est_at_lower_bound\": " << (result.tau_est_at_lower_bound ? "true" : "false") << ",\n";
+  out << "  \"tau_est_at_upper_bound\": " << (result.tau_est_at_upper_bound ? "true" : "false") << ",\n";
+  out << "  \"tau_est_low_confidence\": " << (result.tau_est_low_confidence ? "true" : "false") << ",\n";
+  out << "  \"tau_nls_at_lower_bound\": " << (result.tau_nls_at_lower_bound ? "true" : "false") << ",\n";
+  out << "  \"tau_nls_at_upper_bound\": " << (result.tau_nls_at_upper_bound ? "true" : "false") << ",\n";
+  out << "  \"tau_dft_at_lower_bound\": " << (result.tau_dft_at_lower_bound ? "true" : "false") << ",\n";
+  out << "  \"tau_dft_at_upper_bound\": " << (result.tau_dft_at_upper_bound ? "true" : "false") << ",\n";
+}
+
 } // namespace
 
 RingDownAnalyzer::RingDownAnalyzer(NLSFrequencyEstimator nls_estimator,
                                    DFTFrequencyEstimator dft_estimator,
-                                   std::optional<std::uintmax_t> max_file_size_bytes)
+                                   std::optional<std::uintmax_t> max_file_size_bytes,
+                                   ProfileQEstimator profile_q_estimator)
     : nls_estimator_{std::move(nls_estimator)},
       dft_estimator_{std::move(dft_estimator)},
+      profile_q_estimator_{std::move(profile_q_estimator)},
       max_file_size_bytes_{max_file_size_bytes} {}
 
 AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& samples,
@@ -740,6 +944,9 @@ AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& time,
   if (time.size() != samples.size()) {
     throw std::invalid_argument{"t and data must have same length"};
   }
+  if (!std::isfinite(max_tau_multiplier) || max_tau_multiplier <= 0.0) {
+    throw std::invalid_argument{"max_tau_multiplier must be positive and finite"};
+  }
 
   auto normalized_time = time;
   const auto sample_rate_hz = validate_uniform_timebase(normalized_time);
@@ -753,12 +960,27 @@ AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& time,
   const auto tau_seed = estimate_initial_tau_from_envelope(samples, sample_rate_hz);
   timings.tau_seed = elapsed_milliseconds(tau_seed_start);
 
+  auto tau_full_lower = 0.0;
+  auto tau_full_upper = 0.0;
+  (void)sanitize_tau_guess_uniform(std::optional<double>{tau_seed},
+                                   sample_rate_hz,
+                                   normalized_time.size(),
+                                   tau_full_lower,
+                                   tau_full_upper);
+
   const auto full_record_tau_start = std::chrono::steady_clock::now();
   auto tau_estimate = estimate_tau(normalized_time, samples, sample_rate_hz, tau_seed, initial);
   if (!std::isfinite(tau_estimate) || tau_estimate <= 0.0) {
     tau_estimate = tau_seed;
   }
   timings.full_record_tau = elapsed_milliseconds(full_record_tau_start);
+
+  const auto tau_est_bounds = near_bound_value(tau_estimate, tau_full_lower, tau_full_upper);
+  const auto T_over_tau_est =
+      (tau_estimate > 0.0 && std::isfinite(tau_estimate)) ? (normalized_time.back() / tau_estimate)
+                                                        : std::numeric_limits<double>::infinity();
+  const auto tau_est_low_confidence =
+      (!std::isfinite(T_over_tau_est) || T_over_tau_est < 1.0) || tau_est_bounds.first || tau_est_bounds.second;
 
   const auto crop_start = std::chrono::steady_clock::now();
   auto [cropped_time, cropped_samples] =
@@ -778,7 +1000,73 @@ AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& time,
   const auto dft = dft_estimator_.estimate_full(cropped_samples, sample_rate_hz);
   timings.cropped_dft_tau = elapsed_milliseconds(cropped_dft_start);
 
-  const auto tau_model = nls.tau.value_or(dft.tau.value_or(tau_estimate));
+  auto nls_tau_bounds_l = false;
+  auto nls_tau_bounds_u = false;
+  if (nls.tau.has_value() && nls.tau_lower_bound.has_value() && nls.tau_upper_bound.has_value()) {
+    const auto pr = near_bound_optional(nls.tau, *nls.tau_lower_bound, *nls.tau_upper_bound);
+    nls_tau_bounds_l = pr.first;
+    nls_tau_bounds_u = pr.second;
+  }
+  auto dft_tau_bounds_l = false;
+  auto dft_tau_bounds_u = false;
+  if (dft.tau.has_value() && dft.tau_lower_bound.has_value() && dft.tau_upper_bound.has_value()) {
+    const auto pr = near_bound_optional(dft.tau, *dft.tau_lower_bound, *dft.tau_upper_bound);
+    dft_tau_bounds_l = pr.first;
+    dft_tau_bounds_u = pr.second;
+  }
+
+  std::optional<double> q_pre_crop;
+  if (std::isfinite(nls.frequency_hz) && nls.frequency_hz > 0.0 && std::isfinite(tau_estimate) &&
+      tau_estimate > 0.0) {
+    q_pre_crop = std::numbers::pi * nls.frequency_hz * tau_estimate;
+  }
+
+  const auto nls_q = assess_q_estimate("nls",
+                                       nls.quality_factor,
+                                       nls.tau,
+                                       nls.success,
+                                       nls.used_fallback,
+                                       nls_tau_bounds_l,
+                                       nls_tau_bounds_u,
+                                       tau_est_low_confidence,
+                                       q_pre_crop,
+                                       cropped_time);
+  const auto dft_q = assess_q_estimate("dft",
+                                       dft.quality_factor,
+                                       dft.tau,
+                                       dft.success,
+                                       dft.used_fallback,
+                                       dft_tau_bounds_l,
+                                       dft_tau_bounds_u,
+                                       tau_est_low_confidence,
+                                       q_pre_crop,
+                                       cropped_time);
+
+  const auto profile_q_start = std::chrono::steady_clock::now();
+  auto profile_f = nls.frequency_hz;
+  if (!std::isfinite(profile_f) || profile_f <= 0.0) {
+    profile_f = dft.frequency_hz;
+  }
+  std::optional<double> profile_f_arg;
+  if (std::isfinite(profile_f) && profile_f > 0.0) {
+    profile_f_arg = profile_f;
+  }
+  auto profile_q = profile_q_estimator_.estimate(normalized_time,
+                                                samples,
+                                                sample_rate_hz,
+                                                profile_f_arg,
+                                                std::optional<double>{tau_estimate},
+                                                std::nullopt,
+                                                std::nullopt);
+  timings.profile_q = elapsed_milliseconds(profile_q_start);
+
+  auto tau_model = tau_estimate;
+  if (nls_q.valid && nls.tau.has_value()) {
+    tau_model = *nls.tau;
+  } else if (dft_q.valid && dft.tau.has_value()) {
+    tau_model = *dft.tau;
+  }
+
   const auto noise_start = std::chrono::steady_clock::now();
   const auto noise = estimate_noise_parameters(cropped_time, cropped_samples, tau_model, nls.frequency_hz);
   timings.noise_fit = elapsed_milliseconds(noise_start);
@@ -795,29 +1083,102 @@ AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& time,
   timings.crlb = elapsed_milliseconds(crlb_start);
   timings.total = elapsed_milliseconds(total_start);
 
-  auto result = AnalyzerResult{normalized_time,
-                               samples,
-                               cropped_time,
-                               cropped_samples,
-                               {},
-                               sample_rate_hz,
-                               tau_seed,
-                               tau_estimate,
-                               tau_model,
-                               nls,
-                               dft,
-                               noise,
-                               crlb_var,
-                               crlb_std,
-                               noise.success && nls.success && std::isfinite(crlb_std) && crlb_std > 0.0,
-                               normalized_time.size(),
-                               cropped_samples.size(),
-                               normalized_time.back(),
-                               cropped_time.back(),
-                               {},
-                               {},
-                               timings};
+  auto result = AnalyzerResult{};
+  result.time = std::move(normalized_time);
+  result.samples = samples;
+  result.cropped_time = std::move(cropped_time);
+  result.cropped_samples = std::move(cropped_samples);
+  result.secondary_samples = {};
+  result.sample_rate_hz = sample_rate_hz;
+  result.tau_seed = tau_seed;
+  result.tau_estimate = tau_estimate;
+  result.tau_model = tau_model;
+  result.nls = nls;
+  result.dft = dft;
+  result.noise = noise;
+  result.plugin_crlb_variance_f = crlb_var;
+  result.plugin_crlb_std_f = crlb_std;
+  result.uncertainty_valid =
+      noise.success && nls.success && std::isfinite(crlb_std) && crlb_std > 0.0;
+  result.sample_count = result.time.size();
+  result.cropped_sample_count = result.cropped_samples.size();
+  result.observation_time = result.time.back();
+  result.cropped_observation_time =
+      result.cropped_time.empty() ? 0.0 : result.cropped_time.back();
+  result.filename = {};
+  result.file_type = {};
+  result.timings = timings;
+  result.nls_q = nls_q;
+  result.dft_q = dft_q;
+  result.profile_q = std::move(profile_q);
+  result.Q_pre_crop = q_pre_crop;
+  result.tau_est_at_lower_bound = tau_est_bounds.first;
+  result.tau_est_at_upper_bound = tau_est_bounds.second;
+  result.tau_est_low_confidence = tau_est_low_confidence;
+  result.tau_nls_at_lower_bound = nls_tau_bounds_l;
+  result.tau_nls_at_upper_bound = nls_tau_bounds_u;
+  result.tau_dft_at_lower_bound = dft_tau_bounds_l;
+  result.tau_dft_at_upper_bound = dft_tau_bounds_u;
   return result;
+}
+
+std::vector<QSensitivityRow> RingDownAnalyzer::q_sensitivity(const std::vector<double>& time,
+                                                           const std::vector<double>& samples,
+                                                           const std::vector<double>& start_offsets,
+                                                           const std::vector<double>& durations,
+                                                           const std::vector<double>& max_tau_multipliers) const {
+  validate_samples(samples, "Signal data");
+  if (time.size() != samples.size()) {
+    throw std::invalid_argument{"t and data must have same length"};
+  }
+  auto t_work = time;
+  (void)validate_uniform_timebase(t_work);
+
+  auto multipliers = max_tau_multipliers;
+  if (multipliers.empty()) {
+    multipliers = {3.0};
+  }
+  for (const auto m : multipliers) {
+    if (!std::isfinite(m) || m <= 0.0) {
+      throw std::invalid_argument{"max_tau_multiplier must be positive and finite"};
+    }
+  }
+
+  auto rows = std::vector<QSensitivityRow>{};
+  for (const auto start : start_offsets) {
+    if (!std::isfinite(start) || start < 0.0) {
+      throw std::invalid_argument{"start offsets must be non-negative and finite"};
+    }
+    for (const auto duration : durations) {
+      if (!std::isfinite(duration) || duration <= 0.0) {
+        throw std::invalid_argument{"durations must be positive and finite"};
+      }
+      const auto stop = start + duration;
+      auto t_win = std::vector<double>{};
+      auto x_win = std::vector<double>{};
+      t_win.reserve(samples.size());
+      x_win.reserve(samples.size());
+      for (std::size_t i = 0; i < t_work.size(); ++i) {
+        if (t_work[i] >= start && t_work[i] <= stop) {
+          t_win.push_back(t_work[i]);
+          x_win.push_back(samples[i]);
+        }
+      }
+      if (t_win.size() < 2U) {
+        throw std::invalid_argument{
+            "q_sensitivity window contains fewer than 2 samples for given start/duration"};
+      }
+      for (const auto mult : multipliers) {
+        auto row = QSensitivityRow{};
+        row.start_offset = start;
+        row.duration = duration;
+        row.max_tau_multiplier = mult;
+        row.analysis = analyze_array(t_win, x_win, mult);
+        rows.push_back(std::move(row));
+      }
+    }
+  }
+  return rows;
 }
 
 AnalyzerResult RingDownAnalyzer::analyze_file(const std::string& filepath,
@@ -1103,12 +1464,15 @@ std::string to_json(const AnalyzerResult& result) {
   out << "  \"tau_seed\": " << json_number(result.tau_seed) << ",\n";
   out << "  \"tau_est\": " << json_number(result.tau_estimate) << ",\n";
   out << "  \"tau_model\": " << json_number(result.tau_model) << ",\n";
+  append_tau_flags_json(out, result);
   out << "  \"f_nls\": " << json_number(result.nls.frequency_hz) << ",\n";
   out << "  \"f_dft\": " << json_number(result.dft.frequency_hz) << ",\n";
   out << "  \"tau_nls\": " << optional_number(result.nls.tau) << ",\n";
   out << "  \"tau_dft\": " << optional_number(result.dft.tau) << ",\n";
-  out << "  \"Q_nls\": " << optional_number(result.nls.quality_factor) << ",\n";
-  out << "  \"Q_dft\": " << optional_number(result.dft.quality_factor) << ",\n";
+  out << "  \"Q_pre_crop\": " << optional_number(result.Q_pre_crop) << ",\n";
+  append_q_nls_json_fields(out, result.nls_q);
+  append_q_dft_json_fields(out, result.dft_q);
+  append_profile_q_json_fields(out, result.profile_q);
   out << "  \"A0_est\": " << json_number(result.noise.amplitude) << ",\n";
   out << "  \"sigma_est\": " << json_number(result.noise.sigma) << ",\n";
   out << "  \"plugin_crlb_var_f\": " << json_number(result.plugin_crlb_variance_f) << ",\n";
@@ -1150,19 +1514,17 @@ std::string to_json_notebook(const AnalyzerResult& result) {
   out << "  \"tau_seed\": " << json_number(result.tau_seed) << ",\n";
   out << "  \"tau_est\": " << json_number(result.tau_estimate) << ",\n";
   out << "  \"tau_model\": " << json_number(result.tau_model) << ",\n";
+  append_tau_flags_json(out, result);
   out << "  \"f_nls\": " << json_number(result.nls.frequency_hz) << ",\n";
   out << "  \"f_dft\": " << json_number(result.dft.frequency_hz) << ",\n";
   out << "  \"tau_nls\": " << optional_number(result.nls.tau) << ",\n";
   out << "  \"tau_dft\": " << optional_number(result.dft.tau) << ",\n";
-  out << "  \"Q_nls\": " << optional_number(result.nls.quality_factor) << ",\n";
-  out << "  \"Q_dft\": " << optional_number(result.dft.quality_factor) << ",\n";
+  out << "  \"Q_pre_crop\": " << optional_number(result.Q_pre_crop) << ",\n";
+  append_q_nls_json_fields(out, result.nls_q);
+  append_q_dft_json_fields(out, result.dft_q);
+  append_profile_q_json_fields(out, result.profile_q);
   out << "  \"nls_evaluations\": " << optional_size_t_json(result.nls.evaluations) << ",\n";
   out << "  \"dft_evaluations\": " << optional_size_t_json(result.dft.evaluations) << ",\n";
-  const auto q_pre =
-      std::isfinite(result.nls.frequency_hz) && std::isfinite(result.tau_estimate) && result.tau_estimate > 0.0
-          ? std::numbers::pi * result.nls.frequency_hz * result.tau_estimate
-          : std::numeric_limits<double>::quiet_NaN();
-  out << "  \"Q_pre_crop\": " << json_number(q_pre) << ",\n";
   out << "  \"nls_success\": " << (result.nls.success ? "true" : "false") << ",\n";
   out << "  \"dft_success\": " << (result.dft.success ? "true" : "false") << ",\n";
   out << "  \"nls_used_fallback\": " << (result.nls.used_fallback ? "true" : "false") << ",\n";

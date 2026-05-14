@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <ringdown/estimators.hpp>
+#include <ringdown/q_profile.hpp>
 
 namespace ringdown {
 
@@ -20,6 +21,7 @@ struct AnalysisTimingsMs {
   double crop{0.0};
   double cropped_nls{0.0};
   double cropped_dft_tau{0.0};
+  double profile_q{0.0};
   double noise_fit{0.0};
   double crlb{0.0};
 };
@@ -32,6 +34,18 @@ struct NoiseEstimate {
   bool success{false};
   std::string method;
   std::string message;
+};
+
+/// Validated vs raw Q diagnostics for one method (Python `QAssessment` fields on the result dict).
+struct QEstimateDiagnostics {
+  std::optional<double> value;
+  std::optional<double> raw;
+  bool valid{false};
+  std::string status;
+  std::vector<std::string> reasons;
+  std::optional<double> raw_to_pre_crop_ratio;
+  bool tau_at_lower_bound{false};
+  bool tau_at_upper_bound{false};
 };
 
 struct AnalyzerResult {
@@ -57,6 +71,23 @@ struct AnalyzerResult {
   std::string filename;
   std::string file_type;
   AnalysisTimingsMs timings;
+
+  QEstimateDiagnostics nls_q;
+  QEstimateDiagnostics dft_q;
+  QProfileResult profile_q;
+  std::optional<double> Q_pre_crop;
+  bool tau_est_at_lower_bound{false};
+  bool tau_est_at_upper_bound{false};
+  bool tau_est_low_confidence{false};
+  bool tau_nls_at_lower_bound{false};
+  bool tau_nls_at_upper_bound{false};
+  bool tau_dft_at_lower_bound{false};
+  bool tau_dft_at_upper_bound{false};
+
+  /// Filled by `BatchRingDownAnalyzer::calculate_q_factors` / `get_q_factor_statistics`.
+  std::optional<double> batch_Q;
+  bool batch_Q_valid{false};
+  std::string batch_Q_status;
 };
 
 struct LoadedData {
@@ -84,21 +115,37 @@ public:
       std::optional<std::uintmax_t> max_file_size_bytes = default_max_file_size_bytes);
 };
 
+/// One record from `RingDownAnalyzer::q_sensitivity` (Python `q_sensitivity` rows).
+struct QSensitivityRow {
+  double start_offset{0.0};
+  double duration{0.0};
+  double max_tau_multiplier{3.0};
+  AnalyzerResult analysis;
+};
+
 class RingDownAnalyzer {
 public:
   RingDownAnalyzer(NLSFrequencyEstimator nls_estimator = NLSFrequencyEstimator{},
                    DFTFrequencyEstimator dft_estimator = DFTFrequencyEstimator{},
                    std::optional<std::uintmax_t> max_file_size_bytes =
-                       RingDownDataLoader::default_max_file_size_bytes);
+                       RingDownDataLoader::default_max_file_size_bytes,
+                   ProfileQEstimator profile_q_estimator = ProfileQEstimator{});
 
   [[nodiscard]] AnalyzerResult analyze_array(const std::vector<double>& samples,
                                              double sample_rate_hz,
-                                             double max_tau_multiplier = 1.0) const;
+                                             double max_tau_multiplier = 3.0) const;
   [[nodiscard]] AnalyzerResult analyze_array(const std::vector<double>& time,
                                              const std::vector<double>& samples,
-                                             double max_tau_multiplier = 1.0) const;
+                                             double max_tau_multiplier = 3.0) const;
   [[nodiscard]] AnalyzerResult analyze_file(const std::string& filepath,
-                                            double max_tau_multiplier = 1.0) const;
+                                            double max_tau_multiplier = 3.0) const;
+
+  [[nodiscard]] std::vector<QSensitivityRow> q_sensitivity(const std::vector<double>& time,
+                                                           const std::vector<double>& samples,
+                                                           const std::vector<double>& start_offsets,
+                                                           const std::vector<double>& durations,
+                                                           const std::vector<double>& max_tau_multipliers =
+                                                               {}) const;
 
   [[nodiscard]] double estimate_tau(const std::vector<double>& time,
                                     const std::vector<double>& samples,
@@ -113,6 +160,7 @@ public:
 private:
   NLSFrequencyEstimator nls_estimator_;
   DFTFrequencyEstimator dft_estimator_;
+  ProfileQEstimator profile_q_estimator_;
   std::optional<std::uintmax_t> max_file_size_bytes_;
 };
 

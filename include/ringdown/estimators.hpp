@@ -11,6 +11,9 @@ struct EstimationResult {
   double frequency_hz{0.0};
   std::optional<double> tau;
   std::optional<double> quality_factor;
+  /// When NLS estimates tau, bounds used by the bounded fit (for Q validity / bound-hit flags).
+  std::optional<double> tau_lower_bound;
+  std::optional<double> tau_upper_bound;
   bool success{true};
   bool used_fallback{false};
   std::string message;
