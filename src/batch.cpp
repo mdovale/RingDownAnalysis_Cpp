@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <limits>
 #include <numeric>
+#include <numbers>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -107,6 +108,7 @@ void append_json_timings_object(std::ostringstream& out, const AnalysisTimingsMs
       << ",\"crop\":" << json_number(timings.crop)
       << ",\"cropped_nls\":" << json_number(timings.cropped_nls)
       << ",\"cropped_dft_tau\":" << json_number(timings.cropped_dft_tau)
+      << ",\"profile_q\":" << json_number(timings.profile_q)
       << ",\"noise_fit\":" << json_number(timings.noise_fit)
       << ",\"crlb\":" << json_number(timings.crlb) << '}';
 }
@@ -130,6 +132,46 @@ void report_progress(const BatchProgressCallback& progress,
   const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - start);
   progress(BatchProgressEvent{index, total, filepath, std::move(stage), success, elapsed, std::move(message)});
+}
+
+struct SelectedQ {
+  std::optional<double> q;
+  bool q_valid{false};
+  std::string q_status;
+};
+
+[[nodiscard]] SelectedQ select_preferred_q(const AnalyzerResult& result, bool include_invalid) {
+  const auto has_profile = !result.profile_q.method.empty();
+  if (has_profile) {
+    if (result.profile_q.Q.has_value() && std::isfinite(*result.profile_q.Q)) {
+      return {result.profile_q.Q, result.profile_q.valid, result.profile_q.status};
+    }
+    if (!include_invalid) {
+      return {std::nullopt, false, result.profile_q.status};
+    }
+    if (result.nls_q.raw.has_value() && std::isfinite(*result.nls_q.raw)) {
+      return {result.nls_q.raw, false, result.profile_q.status};
+    }
+    return {std::nullopt, false, result.profile_q.status};
+  }
+
+  if (!result.nls_q.valid && !include_invalid) {
+    return {std::nullopt, false, result.nls_q.status};
+  }
+  auto q = result.nls_q.value;
+  if (!q.has_value() && include_invalid) {
+    q = result.nls_q.raw;
+  }
+  if (!q.has_value()) {
+    const auto tau_for_q = result.nls.tau.value_or(result.tau_model);
+    if (std::isfinite(result.nls.frequency_hz) && std::isfinite(tau_for_q) && tau_for_q > 0.0) {
+      q = std::numbers::pi * result.nls.frequency_hz * tau_for_q;
+    }
+  }
+  if (!q.has_value() || !std::isfinite(*q)) {
+    return {std::nullopt, false, result.nls_q.status};
+  }
+  return {q, result.nls_q.valid, result.nls_q.status};
 }
 
 } // namespace
@@ -214,14 +256,61 @@ ProcessResult BatchRingDownAnalyzer::process_files(const std::vector<std::string
   return ProcessResult{results_, failed};
 }
 
-std::vector<double> BatchRingDownAnalyzer::calculate_q_factors() const {
+std::vector<double> BatchRingDownAnalyzer::calculate_q_factors(const bool include_invalid) {
   auto values = std::vector<double>{};
   values.reserve(results_.size());
-  for (const auto& result : results_) {
-    values.push_back(
-        result.nls.quality_factor.value_or(result.tau_model * result.nls.frequency_hz * std::acos(-1.0)));
+  for (auto& result : results_) {
+    const auto sel = select_preferred_q(result, include_invalid);
+    result.batch_Q = sel.q;
+    result.batch_Q_valid = sel.q_valid;
+    result.batch_Q_status = sel.q_status;
+    if (sel.q.has_value() && std::isfinite(*sel.q)) {
+      values.push_back(*sel.q);
+    }
   }
   return values;
+}
+
+QFactorStatistics BatchRingDownAnalyzer::get_q_factor_statistics(const bool include_invalid) {
+  auto stats = QFactorStatistics{};
+  stats.include_invalid = include_invalid;
+  if (results_.empty()) {
+    return stats;
+  }
+  (void)calculate_q_factors(include_invalid);
+  stats.n_total = results_.size();
+  for (const auto& r : results_) {
+    if (r.batch_Q.has_value() && std::isfinite(*r.batch_Q)) {
+      stats.values.push_back(*r.batch_Q);
+    }
+  }
+  stats.n_skipped = stats.n_total - stats.values.size();
+  stats.n_valid = stats.values.size();
+
+  for (const auto& r : results_) {
+    const auto has_profile = !r.profile_q.method.empty();
+    if (has_profile && !r.profile_q.valid) {
+      const auto& st = r.profile_q.status;
+      if (st == "lower_limit" || st == "upper_limit" || st == "unbounded") {
+        ++stats.n_profile_limits;
+      } else {
+        ++stats.n_invalid;
+      }
+    } else if (!has_profile && !r.nls_q.valid) {
+      ++stats.n_invalid;
+    }
+  }
+
+  if (stats.values.empty()) {
+    return stats;
+  }
+  const auto s = statistics(std::vector<double>(stats.values.begin(), stats.values.end()));
+  stats.mean = s.mean;
+  stats.std_dev = s.standard_deviation;
+  stats.minimum = s.minimum;
+  stats.maximum = s.maximum;
+  stats.range = s.maximum - s.minimum;
+  return stats;
 }
 
 std::vector<BatchSummaryRow> BatchRingDownAnalyzer::summary_table() const {
@@ -241,8 +330,8 @@ std::vector<BatchSummaryRow> BatchRingDownAnalyzer::summary_table() const {
                                    result.nls.frequency_hz,
                                    result.dft.frequency_hz,
                                    std::abs(result.nls.frequency_hz - result.dft.frequency_hz),
-                                   optional_or_nan(result.nls.quality_factor),
-                                   optional_or_nan(result.dft.quality_factor),
+                                   optional_or_nan(result.nls_q.value),
+                                   optional_or_nan(result.dft_q.value),
                                    result.plugin_crlb_std_f,
                                    result.noise.amplitude,
                                    result.noise.sigma,
@@ -333,8 +422,8 @@ std::string to_json(const ProcessResult& result) {
         << json_string(item.file_type) << ", \"f_nls\": " << json_number(item.nls.frequency_hz)
         << ", \"f_dft\": " << json_number(item.dft.frequency_hz)
         << ", \"tau_est\": " << json_number(item.tau_estimate)
-        << ", \"Q_nls\": " << optional_json_number(item.nls.quality_factor)
-        << ", \"Q_dft\": " << optional_json_number(item.dft.quality_factor)
+        << ", \"Q_nls\": " << optional_json_number(item.nls_q.value)
+        << ", \"Q_dft\": " << optional_json_number(item.dft_q.value)
         << ", \"plugin_crlb_std_f\": " << json_number(item.plugin_crlb_std_f)
         << ", \"timings_ms\": ";
     append_json_timings_object(out, item.timings);
@@ -360,7 +449,7 @@ std::string to_json(const ProcessResult& result) {
   return out.str();
 }
 
-std::string to_json_batch_report(const BatchRingDownAnalyzer& batch,
+std::string to_json_batch_report(BatchRingDownAnalyzer& batch,
                                  const ProcessResult& process,
                                  BatchReportOptions options) {
   auto out = std::ostringstream{};
@@ -421,34 +510,35 @@ std::string to_json_batch_report(const BatchRingDownAnalyzer& batch,
   }
   out << "  ],\n";
 
+  const auto q_stats_full = batch.get_q_factor_statistics(false);
   const auto summary = batch.summary_table();
-  const auto q_factors = batch.calculate_q_factors();
 
   out << "  \"q_factors\": ";
-  append_json_double_array(out, q_factors);
+  append_json_double_array(out, q_stats_full.values);
   out << ",\n";
 
-  if (!q_factors.empty()) {
-    const auto q_stats = statistics(std::vector<double>(q_factors.begin(), q_factors.end()));
-    out << "  \"q_factor_statistics\": {\n";
-    out << "    \"values\": ";
-    append_json_double_array(out, q_factors);
-    out << ",\n";
-    out << "    \"mean\": " << json_number(q_stats.mean) << ",\n";
-    out << "    \"std\": " << json_number(q_stats.standard_deviation) << ",\n";
-    out << "    \"min\": " << json_number(q_stats.minimum) << ",\n";
-    out << "    \"max\": " << json_number(q_stats.maximum) << ",\n";
-    out << "    \"range\": " << json_number(q_stats.maximum - q_stats.minimum) << "\n";
-    out << "  },\n";
-  } else {
-    out << "  \"q_factor_statistics\": {},\n";
-  }
+  out << "  \"q_factor_statistics\": {\n";
+  out << "    \"values\": ";
+  append_json_double_array(out, q_stats_full.values);
+  out << ",\n";
+  out << "    \"mean\": " << json_number(q_stats_full.mean) << ",\n";
+  out << "    \"std\": " << json_number(q_stats_full.std_dev) << ",\n";
+  out << "    \"min\": " << json_number(q_stats_full.minimum) << ",\n";
+  out << "    \"max\": " << json_number(q_stats_full.maximum) << ",\n";
+  out << "    \"range\": " << json_number(q_stats_full.range) << ",\n";
+  out << "    \"n_total\": " << q_stats_full.n_total << ",\n";
+  out << "    \"n_valid\": " << q_stats_full.n_valid << ",\n";
+  out << "    \"n_skipped\": " << q_stats_full.n_skipped << ",\n";
+  out << "    \"n_invalid\": " << q_stats_full.n_invalid << ",\n";
+  out << "    \"n_profile_limits\": " << q_stats_full.n_profile_limits << ",\n";
+  out << "    \"include_invalid\": " << (q_stats_full.include_invalid ? "true" : "false") << "\n";
+  out << "  },\n";
 
   out << "  \"summary_table\": [\n";
   for (auto index = std::size_t{0}; index < summary.size(); ++index) {
     const auto& row = summary[index];
-    const auto q =
-        index < q_factors.size() ? q_factors[index] : std::numeric_limits<double>::quiet_NaN();
+    const auto q = index < process.results.size() ? optional_or_nan(process.results[index].batch_Q)
+                                                    : std::numeric_limits<double>::quiet_NaN();
     out << "    {\n";
     out << "      \"Filename\": " << json_string(row.filename) << ",\n";
     out << "      \"Type\": " << json_string(row.file_type) << ",\n";

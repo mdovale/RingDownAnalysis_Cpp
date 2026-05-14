@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <exception>
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -91,6 +92,21 @@ struct UncertaintyComparison {
   SummaryStatistics ratio_statistics;
 };
 
+struct QFactorStatistics {
+  std::vector<double> values;
+  double mean{std::numeric_limits<double>::quiet_NaN()};
+  double std_dev{std::numeric_limits<double>::quiet_NaN()};
+  double minimum{std::numeric_limits<double>::quiet_NaN()};
+  double maximum{std::numeric_limits<double>::quiet_NaN()};
+  double range{std::numeric_limits<double>::quiet_NaN()};
+  std::size_t n_total{0};
+  std::size_t n_valid{0};
+  std::size_t n_skipped{0};
+  std::size_t n_invalid{0};
+  std::size_t n_profile_limits{0};
+  bool include_invalid{false};
+};
+
 class BatchRingDownAnalyzer {
 public:
   explicit BatchRingDownAnalyzer(RingDownAnalyzer analyzer = RingDownAnalyzer{});
@@ -98,7 +114,8 @@ public:
   [[nodiscard]] ProcessResult process_files(const std::vector<std::string>& filepaths,
                                             std::size_t worker_count = 1,
                                             BatchProgressCallback progress = {});
-  [[nodiscard]] std::vector<double> calculate_q_factors() const;
+  [[nodiscard]] std::vector<double> calculate_q_factors(bool include_invalid = false);
+  [[nodiscard]] QFactorStatistics get_q_factor_statistics(bool include_invalid = false);
   [[nodiscard]] std::vector<BatchSummaryRow> summary_table() const;
   [[nodiscard]] ConsistencyAnalysis consistency_analysis() const;
   [[nodiscard]] UncertaintyComparison uncertainty_comparison() const;
@@ -117,7 +134,7 @@ private:
 /// Full batch report: per-file notebook-shaped results, failures, summary rows,
 /// Q factors, consistency and plug-in / CRLB comparison blocks (Python-notebook
 /// compatible field names where practical).
-[[nodiscard]] std::string to_json_batch_report(const BatchRingDownAnalyzer& batch,
+[[nodiscard]] std::string to_json_batch_report(BatchRingDownAnalyzer& batch,
                                                const ProcessResult& process,
                                                BatchReportOptions options = {});
 
