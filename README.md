@@ -46,9 +46,9 @@ ctest --preset release
 
 ## Reference Python Project
 
-The local `.read-only/RingDownAnalysis` checkout is for porting reference only
-and is intentionally ignored by git. Use it to generate golden fixtures and to
-compare behavior, but do not vendor it into this repository.
+The reference Python project lives next to this repository at
+`../RingDownAnalysis`. Use it to generate golden fixtures and compare behavior,
+but do not vendor it into this repository.
 
 ## CLI
 

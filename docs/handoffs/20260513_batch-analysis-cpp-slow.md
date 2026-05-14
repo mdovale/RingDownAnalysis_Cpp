@@ -68,7 +68,7 @@ Relevant files:
   `--max-files`, and calls `BatchRingDownAnalyzer::process_files`.
 - `examples/python/export_batch_reference.py`: Python reference exporter. With
   `--max-files 3`, it processes the three CSV fixtures currently present under
-  `.read-only/RingDownAnalysis/data`.
+  `../RingDownAnalysis/data`.
 - `examples/python/compare_batch_analysis.py`: parity comparison and optional
   plot generation.
 - `src/batch.cpp`: `BatchRingDownAnalyzer::process_files`. With
@@ -79,7 +79,7 @@ Relevant files:
 
 Observed input selection:
 
-- `.read-only/RingDownAnalysis/data` currently has three CSV files matching
+- `../RingDownAnalysis/data` currently has three CSV files matching
   `*.csv`.
 - `--max-files 3` should therefore run only those three CSV files before any
   MAT fixtures.

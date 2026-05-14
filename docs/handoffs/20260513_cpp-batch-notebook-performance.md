@@ -283,5 +283,5 @@ Run the full notebook-equivalent workflow with Release C++ and compare:
 - `docs/RESULTS_AND_PERFORMANCE.md`
 - `AGENTS.md`
 - Python reference:
-  `.read-only/RingDownAnalysis/ringdownanalysis/`
+  `../RingDownAnalysis/ringdownanalysis/`
 - No external references yet.

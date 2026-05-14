@@ -3,16 +3,16 @@
 ## Scope
 
 Implement the C++20 `RingDownAnalysisCpp` library end-to-end from the Python
-reference project in `.read-only/RingDownAnalysis`.
+reference project in `../RingDownAnalysis`.
 
 The desired result is a fully functional, fully tested, high-performance C++
 library that can run workflows equivalent to:
 
-- `.read-only/RingDownAnalysis/notebooks/array_analysis_example.ipynb`
-- `.read-only/RingDownAnalysis/notebooks/analysis_example.ipynb`
-- `.read-only/RingDownAnalysis/notebooks/batch_analysis_example.ipynb`
+- `../RingDownAnalysis/notebooks/array_analysis_example.ipynb`
+- `../RingDownAnalysis/notebooks/analysis_example.ipynb`
+- `../RingDownAnalysis/notebooks/batch_analysis_example.ipynb`
 - large Monte Carlo studies currently represented by
-  `.read-only/RingDownAnalysis/ringdownanalysis/monte_carlo.py`
+  `../RingDownAnalysis/ringdownanalysis/monte_carlo.py`
 
 Python and Jupyter remain downstream tools for inspecting exported C++ results.
 The analysis pipeline itself should run 100% in C++.
@@ -58,20 +58,20 @@ Non-goals unless the user explicitly asks:
 
 Reference Python package:
 
-- `.read-only/RingDownAnalysis/ringdownanalysis/signal.py`
-- `.read-only/RingDownAnalysis/ringdownanalysis/estimators.py`
-- `.read-only/RingDownAnalysis/ringdownanalysis/crlb.py`
-- `.read-only/RingDownAnalysis/ringdownanalysis/data_loader.py`
-- `.read-only/RingDownAnalysis/ringdownanalysis/analyzer.py`
-- `.read-only/RingDownAnalysis/ringdownanalysis/batch_analyzer.py`
-- `.read-only/RingDownAnalysis/ringdownanalysis/monte_carlo.py`
+- `../RingDownAnalysis/ringdownanalysis/signal.py`
+- `../RingDownAnalysis/ringdownanalysis/estimators.py`
+- `../RingDownAnalysis/ringdownanalysis/crlb.py`
+- `../RingDownAnalysis/ringdownanalysis/data_loader.py`
+- `../RingDownAnalysis/ringdownanalysis/analyzer.py`
+- `../RingDownAnalysis/ringdownanalysis/batch_analyzer.py`
+- `../RingDownAnalysis/ringdownanalysis/monte_carlo.py`
 
 Reference tests and docs:
 
-- `.read-only/RingDownAnalysis/tests/`
-- `.read-only/RingDownAnalysis/docs/data_format.md`
-- `.read-only/RingDownAnalysis/DATA_ANALYSIS_PIPELINE_AUDIT.md`
-- `.read-only/RingDownAnalysis/benchmarks/`
+- `../RingDownAnalysis/tests/`
+- `../RingDownAnalysis/docs/data_format.md`
+- `../RingDownAnalysis/DATA_ANALYSIS_PIPELINE_AUDIT.md`
+- `../RingDownAnalysis/benchmarks/`
 
 Important Python public API concepts:
 
@@ -192,7 +192,7 @@ Recommended dependency direction:
 - C++ tests cover every ported algorithm against Python golden fixtures.
 - `array_analysis_example.ipynb`-style workflows can be performed using C++
   outputs loaded in Python/Jupyter.
-- Real CSV data in `.read-only/RingDownAnalysis/data/` can be analyzed from C++.
+- Real CSV data in `../RingDownAnalysis/data/` can be analyzed from C++.
 - Batch analyses produce structured summaries equivalent to the Python API.
 - Monte Carlo studies run fully in C++ with deterministic seeds and scalable
   parallel execution.
@@ -211,8 +211,8 @@ Follow `.cursor/rules/git-workflow.mdc` throughout:
 - Stage narrowly.
 - Use Conventional Commit messages per `.cursor/rules/commit-message.mdc`.
 - Do not force-push.
-- Do not commit `.read-only/`, build products, generated result dumps, or local
-  editor/system files.
+- Do not vendor the sibling Python reference checkout, build products,
+  generated result dumps, or local editor/system files.
 
 Recommended commit cadence examples:
 
@@ -233,10 +233,10 @@ Recommended commit cadence examples:
 
 ## References
 
-- Python reference package: `.read-only/RingDownAnalysis`
-- Array workflow: `.read-only/RingDownAnalysis/notebooks/array_analysis_example.ipynb`
-- Data format specification: `.read-only/RingDownAnalysis/docs/data_format.md`
-- Pipeline audit: `.read-only/RingDownAnalysis/DATA_ANALYSIS_PIPELINE_AUDIT.md`
-- Python benchmark suite: `.read-only/RingDownAnalysis/benchmarks/`
+- Python reference package: `../RingDownAnalysis`
+- Array workflow: `../RingDownAnalysis/notebooks/array_analysis_example.ipynb`
+- Data format specification: `../RingDownAnalysis/docs/data_format.md`
+- Pipeline audit: `../RingDownAnalysis/DATA_ANALYSIS_PIPELINE_AUDIT.md`
+- Python benchmark suite: `../RingDownAnalysis/benchmarks/`
 - Repo workflow: `.cursor/rules/git-workflow.mdc`
 - Commit messages: `.cursor/rules/commit-message.mdc`

@@ -109,7 +109,7 @@ Relevant files/functions:
 - `src/estimators.cpp`: `estimate_with_separable_nls()`,
   `fit_fixed_frequency_tau()`, `minimize_golden()`,
   `estimate_initial_tau_from_envelope()`.
-- `.read-only/RingDownAnalysis/ringdownanalysis/estimators.py`:
+- `../RingDownAnalysis/ringdownanalysis/estimators.py`:
   `NLSFrequencyEstimator._estimate_unknown_tau_full()`,
   `NLSFrequencyEstimator._estimate_known_tau_full()`.
 
@@ -137,7 +137,7 @@ Relevant files/functions:
 - `src/analyzer.cpp`: `RingDownAnalyzer::analyze_array()`,
   `RingDownAnalyzer::estimate_tau()`,
   `RingDownAnalyzer::estimate_noise_parameters()`.
-- `.read-only/RingDownAnalysis/ringdownanalysis/analyzer.py`:
+- `../RingDownAnalysis/ringdownanalysis/analyzer.py`:
   `_run_analysis_pipeline()`, `estimate_tau()`, `estimate_noise_parameters()`.
 
 ### 3. C++ Keeps Large Waveform Copies In Results And JSON Paths
@@ -176,7 +176,7 @@ Relevant files/functions:
 - `src/analyzer.cpp`: `load_csv_stream()`, `parse_csv_data_row()`,
   `RingDownDataLoader::load_csv()`, `RingDownDataLoader::load_mat()`,
   `RingDownDataLoader::load_zip()`.
-- `.read-only/RingDownAnalysis/ringdownanalysis/data_loader.py`:
+- `../RingDownAnalysis/ringdownanalysis/data_loader.py`:
   `RingDownDataLoader.load_csv()`, `RingDownDataLoader.load_mat()`.
 
 ### 5. Benchmark Coverage Is Too Coarse To Guide A Rewrite
@@ -324,7 +324,7 @@ No code changes were attempted beyond this handoff.
 
 ## Context / Constraints
 
-- Python reference path: `.read-only/RingDownAnalysis/ringdownanalysis/`.
+- Python reference path: `../RingDownAnalysis/ringdownanalysis/`.
 - C++ estimator path: `src/estimators.cpp`, `include/ringdown/estimators.hpp`.
 - C++ analyzer path: `src/analyzer.cpp`, `include/ringdown/analyzer.hpp`.
 - C++ batch path: `src/batch.cpp`, `include/ringdown/batch.hpp`.
@@ -373,8 +373,8 @@ Operational:
 - Existing batch-stall handoff:
   `docs/handoffs/20260513_batch-analysis-cpp-slow.md`.
 - Python reference checkout:
-  `.read-only/RingDownAnalysis/ringdownanalysis/estimators.py`,
-  `.read-only/RingDownAnalysis/ringdownanalysis/analyzer.py`,
-  `.read-only/RingDownAnalysis/ringdownanalysis/data_loader.py`,
-  `.read-only/RingDownAnalysis/ringdownanalysis/batch_analyzer.py`.
+  `../RingDownAnalysis/ringdownanalysis/estimators.py`,
+  `../RingDownAnalysis/ringdownanalysis/analyzer.py`,
+  `../RingDownAnalysis/ringdownanalysis/data_loader.py`,
+  `../RingDownAnalysis/ringdownanalysis/batch_analyzer.py`.
 - No external optimizer/library research has been done yet.

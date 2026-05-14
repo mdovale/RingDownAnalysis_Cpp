@@ -1,7 +1,7 @@
 # Agent Instructions
 
 This repository is the C++20 port of the Python `RingDownAnalysis` library in
-`.read-only/RingDownAnalysis`.
+`../RingDownAnalysis`.
 
 ## Operating Model
 
@@ -23,8 +23,8 @@ This repository is the C++20 port of the Python `RingDownAnalysis` library in
 
 ## Reference Paths
 
-- Python source: `.read-only/RingDownAnalysis/ringdownanalysis/`
-- Python tests: `.read-only/RingDownAnalysis/tests/`
-- Example notebooks: `.read-only/RingDownAnalysis/notebooks/`
-- Data format notes: `.read-only/RingDownAnalysis/docs/data_format.md`
-- Pipeline audit: `.read-only/RingDownAnalysis/DATA_ANALYSIS_PIPELINE_AUDIT.md`
+- Python source: `../RingDownAnalysis/ringdownanalysis/`
+- Python tests: `../RingDownAnalysis/tests/`
+- Example notebooks: `../RingDownAnalysis/notebooks/`
+- Data format notes: `../RingDownAnalysis/docs/data_format.md`
+- Pipeline audit: `../RingDownAnalysis/DATA_ANALYSIS_PIPELINE_AUDIT.md`

@@ -60,7 +60,7 @@ Important design choices already made:
 
 1. Select and wire a MAT/HDF5 dependency, then implement `RingDownDataLoader`
    MAT support equivalent to the Python `moku.data` path.
-2. Expand fixtures with real CSV files from `.read-only/RingDownAnalysis/data/`
+2. Expand fixtures with real CSV files from `../RingDownAnalysis/data/`
    and compare C++ analyzer outputs against Python tolerances.
 3. Add a release/performance benchmark that covers estimator and Monte Carlo
    workloads beyond the current smoke target.
@@ -81,6 +81,6 @@ Important design choices already made:
 
 - Original handoff:
   `docs/handoffs/20260513_ringdownanalysis-cpp-agent-1.md`
-- Python reference package: `.read-only/RingDownAnalysis`
-- Data format notes: `.read-only/RingDownAnalysis/docs/data_format.md`
-- Pipeline audit: `.read-only/RingDownAnalysis/DATA_ANALYSIS_PIPELINE_AUDIT.md`
+- Python reference package: `../RingDownAnalysis`
+- Data format notes: `../RingDownAnalysis/docs/data_format.md`
+- Pipeline audit: `../RingDownAnalysis/DATA_ANALYSIS_PIPELINE_AUDIT.md`

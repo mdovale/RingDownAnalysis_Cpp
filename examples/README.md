@@ -16,7 +16,7 @@ cmake --build --preset dev
 
 ## Array workflow (1:1 on shared samples)
 
-1. Export the Python synthetic signal and analyses (requires `.read-only/RingDownAnalysis` or `RINGDOWN_PYTHON_REF`):
+1. Export the Python synthetic signal and analyses (requires `../RingDownAnalysis` or `RINGDOWN_PYTHON_REF`):
 
    ```bash
    python examples/python/export_array_reference.py
@@ -60,9 +60,9 @@ For a **quick smoke** on the small tracked CSV fixture (milliseconds):
 build/dev/examples/batch_analysis_example --data-dir tests/fixtures/reference
 ```
 
-Full notebook-style workflow on reference measurement data (defaults to `.read-only/RingDownAnalysis/data`; can be slow for large captures):
+Full notebook-style workflow on reference measurement data (defaults to `../RingDownAnalysis/data`; can be slow for large captures):
 
-1. Python reference batch report (defaults to `.read-only/RingDownAnalysis/data`):
+1. Python reference batch report (defaults to `../RingDownAnalysis/data`):
 
    ```bash
    python examples/python/export_batch_reference.py
@@ -96,7 +96,7 @@ Environment variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `RINGDOWN_PYTHON_REF` | Path to the `RingDownAnalysis` Python repo if not under `.read-only/RingDownAnalysis` |
+| `RINGDOWN_PYTHON_REF` | Path to the `RingDownAnalysis` Python repo if not at `../RingDownAnalysis` |
 | `RINGDOWN_EXAMPLES_DATA` | Override batch data directory |
 | `RINGDOWN_EXAMPLES_OUTPUT` | Override default `results/examples/...` output root for the C++ examples |
 

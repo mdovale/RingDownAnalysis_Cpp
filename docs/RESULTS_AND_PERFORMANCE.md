@@ -70,14 +70,14 @@ display(errors.describe())
 
 ## Reference Data Validation
 
-Representative real files from `.read-only/RingDownAnalysis/data/` were analyzed
+Representative real files from `../RingDownAnalysis/data/` were analyzed
 with the release binary.
 
 MAT validation command:
 
 ```bash
 build/release/apps/ringdown_cli analyze \
-  ".read-only/RingDownAnalysis/data/MTSRingdownFirstAttempt_20250826_163810 1.mat"
+  "../RingDownAnalysis/data/MTSRingdownFirstAttempt_20250826_163810 1.mat"
 ```
 
 Observed result:
@@ -96,7 +96,7 @@ CSV validation command:
 
 ```bash
 build/release/apps/ringdown_cli analyze \
-  ".read-only/RingDownAnalysis/data/MTS_ringdown_050_laser_out_Test5_20250901_224711_1.5e-6mbar.csv"
+  "../RingDownAnalysis/data/MTS_ringdown_050_laser_out_Test5_20250901_224711_1.5e-6mbar.csv"
 ```
 
 Observed result:
