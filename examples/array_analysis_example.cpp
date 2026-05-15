@@ -178,8 +178,8 @@ int main(int argc, char** argv) {
     meta << "}\n";
 
     write_text(output_dir / "meta.json", meta.str());
-    write_text(output_dir / "from_t_and_data.json", ringdown::to_json_notebook(result_t_data));
-    write_text(output_dir / "from_data_and_fs.json", ringdown::to_json_notebook(result_data_fs));
+    write_text(output_dir / "from_t_and_data.json", ringdown::to_json(result_t_data));
+    write_text(output_dir / "from_data_and_fs.json", ringdown::to_json(result_data_fs));
 
     auto manifest = std::ostringstream{};
     manifest << "{\n";

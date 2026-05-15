@@ -61,10 +61,8 @@ using BatchProgressCallback = std::function<void(const BatchProgressEvent&)>;
 /**
  * @brief Options controlling one `process_files` call.
  *
- * File-size limits are intentionally configured on the `RingDownAnalyzer`
- * owned by `BatchRingDownAnalyzer`, because the loader enforces those limits
- * while opening each file. This struct groups the batch-only concerns: worker
- * scheduling and progress reporting.
+ * This struct groups the batch-only concerns: worker scheduling and progress
+ * reporting.
  */
 struct BatchProcessOptions {
   /// Number of asynchronous workers; values less than two run serially.
@@ -138,14 +136,6 @@ struct BatchSummaryRow {
 };
 
 /**
- * @brief Options controlling `to_json_batch_report` output.
- */
-struct BatchReportOptions {
-  /// Include notebook-style per-file results with waveform arrays.
-  bool include_notebook_results{true};
-};
-
-/**
  * @brief Public export modes for a processed batch.
  */
 enum class BatchExportMode {
@@ -161,8 +151,6 @@ enum class BatchExportMode {
 struct BatchExportOptions {
   /// Which batch JSON shape to produce.
   BatchExportMode mode{BatchExportMode::minimal};
-  /// Options used when `mode == BatchExportMode::full`.
-  BatchReportOptions report;
 };
 
 /**
@@ -270,9 +258,6 @@ public:
    * @param filepaths Input files to process.
    * @param options Worker-count and progress callback options.
    * @return Successful results and per-file failures.
-   *
-   * @note Loader file-size limits come from the `RingDownAnalyzer` supplied to
-   *       the `BatchRingDownAnalyzer` constructor.
    */
   [[nodiscard]] ProcessResult process_files(const std::vector<std::string>& filepaths,
                                             const BatchProcessOptions& options);
@@ -325,13 +310,11 @@ private:
 /**
  * @brief Serializes a full batch report to JSON.
  *
- * The report contains failures, optional notebook-shaped per-file results,
- * timing summaries, selected Q values, summary rows, consistency analysis, and
- * plug-in CRLB comparison blocks.
+ * The report contains failures, timing summaries, selected Q values, summary
+ * rows, consistency analysis, and plug-in CRLB comparison blocks.
  */
 [[nodiscard]] std::string to_json_batch_report(BatchRingDownAnalyzer& batch,
-                                               const ProcessResult& process,
-                                               BatchReportOptions options = {});
+                                               const ProcessResult& process);
 
 /**
  * @brief Serializes a processed batch using a selected export mode.

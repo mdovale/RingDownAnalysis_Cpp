@@ -467,9 +467,7 @@ std::string to_json(const ProcessResult& result) {
   return out.str();
 }
 
-std::string to_json_batch_report(BatchRingDownAnalyzer& batch,
-                                 const ProcessResult& process,
-                                 BatchReportOptions options) {
+std::string to_json_batch_report(BatchRingDownAnalyzer& batch, const ProcessResult& process) {
   auto out = std::ostringstream{};
   out << std::setprecision(17);
   out << "{\n";
@@ -485,31 +483,6 @@ std::string to_json_batch_report(BatchRingDownAnalyzer& batch,
       out << ',';
     }
     out << '\n';
-  }
-  out << "  ],\n";
-
-  out << "  \"results_notebook\": [\n";
-  if (options.include_notebook_results) {
-    for (auto index = std::size_t{0}; index < process.results.size(); ++index) {
-      const auto chunk = to_json_notebook(process.results[index]);
-      auto stream = std::istringstream{chunk};
-      auto line = std::string{};
-      auto first_line = true;
-      while (std::getline(stream, line)) {
-        if (line.empty()) {
-          continue;
-        }
-        if (!first_line) {
-          out << '\n';
-        }
-        first_line = false;
-        out << "    " << line;
-      }
-      if (index + 1U != process.results.size()) {
-        out << ',';
-      }
-      out << '\n';
-    }
   }
   out << "  ],\n";
 
@@ -751,7 +724,7 @@ std::string to_json_batch_export(BatchRingDownAnalyzer& batch,
                                  const ProcessResult& process,
                                  BatchExportOptions options) {
   if (options.mode == BatchExportMode::full) {
-    return to_json_batch_report(batch, process, options.report);
+    return to_json_batch_report(batch, process);
   }
   return to_json(process);
 }

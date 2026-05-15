@@ -190,28 +190,6 @@ void validate_samples(const std::vector<double>& samples, const char* source) {
   return end != sample_start;
 }
 
-[[nodiscard]] std::string format_byte_count(std::uintmax_t value) {
-  auto digits = std::to_string(value);
-  for (auto insert_at = static_cast<std::ptrdiff_t>(digits.size()) - 3; insert_at > 0; insert_at -= 3) {
-    digits.insert(static_cast<std::size_t>(insert_at), ",");
-  }
-  return digits;
-}
-
-void check_file_size(const std::string& filepath, std::uintmax_t max_file_size_bytes) {
-  auto error = std::error_code{};
-  const auto size = std::filesystem::file_size(filepath, error);
-  if (error) {
-    return;
-  }
-  if (size <= max_file_size_bytes) {
-    return;
-  }
-  throw std::invalid_argument{"File size (" + format_byte_count(size) +
-                              " bytes) exceeds maximum allowed (" +
-                              format_byte_count(max_file_size_bytes) + " bytes): " + filepath};
-}
-
 [[nodiscard]] std::string lower_ascii(std::string value) {
   for (auto& ch : value) {
     ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -800,7 +778,7 @@ void append_json_string_array(std::ostringstream& out, const std::vector<std::st
  *
  * @internal Hard failures remove the Q value from summaries. Warnings keep the
  * raw value for diagnostics but still withhold a validated user-facing value,
- * matching the notebook-oriented Python parity fields.
+ * matching the Python parity fields.
  */
 [[nodiscard]] QEstimateDiagnostics assess_q_estimate(const std::string& method,
                                                      std::optional<double> raw_q,
@@ -900,13 +878,6 @@ void append_json_timings_object(std::ostringstream& out, const AnalysisTimingsMs
       << ",\"crlb\":" << json_number(timings.crlb) << '}';
 }
 
-[[nodiscard]] std::string optional_size_t_json(const std::optional<std::size_t>& value) {
-  if (!value.has_value()) {
-    return "null";
-  }
-  return std::to_string(*value);
-}
-
 void append_q_nls_json_fields(std::ostringstream& out, const QEstimateDiagnostics& d) {
   out << "  \"Q_nls\": " << optional_number(d.value) << ",\n";
   out << "  \"Q_nls_raw\": " << optional_number(d.raw) << ",\n";
@@ -977,12 +948,10 @@ void append_tau_flags_json(std::ostringstream& out, const AnalyzerResult& result
 
 RingDownAnalyzer::RingDownAnalyzer(NLSFrequencyEstimator nls_estimator,
                                    DFTFrequencyEstimator dft_estimator,
-                                   std::optional<std::uintmax_t> max_file_size_bytes,
                                    ProfileQEstimator profile_q_estimator)
     : nls_estimator_{std::move(nls_estimator)},
       dft_estimator_{std::move(dft_estimator)},
-      profile_q_estimator_{std::move(profile_q_estimator)},
-      max_file_size_bytes_{max_file_size_bytes} {}
+      profile_q_estimator_{std::move(profile_q_estimator)} {}
 
 AnalyzerResult RingDownAnalyzer::analyze_array(const std::vector<double>& samples,
                                                double sample_rate_hz,
@@ -1242,7 +1211,7 @@ AnalyzerResult RingDownAnalyzer::analyze_file(const std::string& filepath,
                                               double max_tau_multiplier) const {
   const auto total_start = std::chrono::steady_clock::now();
   const auto load_start = std::chrono::steady_clock::now();
-  const auto loaded = RingDownDataLoader::load(filepath, max_file_size_bytes_);
+  const auto loaded = RingDownDataLoader::load(filepath);
   const auto load_ms = elapsed_milliseconds(load_start);
   auto result = analyze_array(loaded.time, loaded.samples, max_tau_multiplier);
   result.timings.load = load_ms;
@@ -1331,21 +1300,17 @@ NoiseEstimate RingDownAnalyzer::estimate_noise_parameters(const std::vector<doub
                        {}};
 }
 
-LoadedData RingDownDataLoader::load(const std::string& filepath,
-                                    std::optional<std::uintmax_t> max_file_size_bytes) {
-  if (max_file_size_bytes.has_value()) {
-    check_file_size(filepath, *max_file_size_bytes);
-  }
+LoadedData RingDownDataLoader::load(const std::string& filepath) {
   const auto path = std::filesystem::path{filepath};
   const auto extension = lower_ascii(path.extension().string());
   if (extension == ".csv") {
-    return load_csv(filepath, max_file_size_bytes);
+    return load_csv(filepath);
   }
   if (extension == ".mat") {
-    return load_mat(filepath, max_file_size_bytes);
+    return load_mat(filepath);
   }
   if (extension == ".zip") {
-    return load_zip(filepath, max_file_size_bytes);
+    return load_zip(filepath);
   }
   throw std::invalid_argument{"Unsupported file format: expected .csv, .mat, or .zip"};
 }
@@ -1400,11 +1365,7 @@ LoadedData load_csv_stream(std::istream& file,
 
 } // namespace
 
-LoadedData RingDownDataLoader::load_csv(const std::string& filepath,
-                                        std::optional<std::uintmax_t> max_file_size_bytes) {
-  if (max_file_size_bytes.has_value()) {
-    check_file_size(filepath, *max_file_size_bytes);
-  }
+LoadedData RingDownDataLoader::load_csv(const std::string& filepath) {
   const auto reserve_count =
       static_cast<std::size_t>(std::min<std::uintmax_t>(std::filesystem::file_size(filepath) / 64U,
                                                        std::numeric_limits<std::size_t>::max()));
@@ -1415,11 +1376,7 @@ LoadedData RingDownDataLoader::load_csv(const std::string& filepath,
   return load_csv_stream(file, filepath, "CSV", reserve_count);
 }
 
-LoadedData RingDownDataLoader::load_zip(const std::string& filepath,
-                                        std::optional<std::uintmax_t> max_file_size_bytes) {
-  if (max_file_size_bytes.has_value()) {
-    check_file_size(filepath, *max_file_size_bytes);
-  }
+LoadedData RingDownDataLoader::load_zip(const std::string& filepath) {
   auto file = std::ifstream{filepath, std::ios::binary};
   if (!file) {
     throw std::runtime_error{"Could not open ZIP file: " + filepath};
@@ -1433,11 +1390,7 @@ LoadedData RingDownDataLoader::load_zip(const std::string& filepath,
   return load_csv_stream(stream, filepath + ":" + csv_entry.name, "ZIP_CSV", csv_text.size() / 64U);
 }
 
-LoadedData RingDownDataLoader::load_mat(const std::string& filepath,
-                                        std::optional<std::uintmax_t> max_file_size_bytes) {
-  if (max_file_size_bytes.has_value()) {
-    check_file_size(filepath, *max_file_size_bytes);
-  }
+LoadedData RingDownDataLoader::load_mat(const std::string& filepath) {
   auto file = std::ifstream{filepath, std::ios::binary};
   if (!file) {
     throw std::runtime_error{"Could not open MAT file: " + filepath};
@@ -1541,76 +1494,6 @@ std::string to_json(const AnalyzerResult& result) {
   out << "  \"plugin_crlb_var_f\": " << json_number(result.plugin_crlb_variance_f) << ",\n";
   out << "  \"plugin_crlb_std_f\": " << json_number(result.plugin_crlb_std_f) << ",\n";
   out << "  \"uncertainty_valid\": " << (result.uncertainty_valid ? "true" : "false") << ",\n";
-  out << "  \"timings_ms\": ";
-  append_json_timings_object(out, result.timings);
-  out << "\n";
-  out << "}\n";
-  return out.str();
-}
-
-std::string to_json_notebook(const AnalyzerResult& result) {
-  auto out = std::ostringstream{};
-  out << std::setprecision(17);
-  out << "{\n";
-  out << "  \"filename\": " << json_string(result.filename) << ",\n";
-  out << "  \"type\": " << json_string(result.file_type) << ",\n";
-  out << "  \"t\": ";
-  append_json_double_array(out, result.time);
-  out << ",\n";
-  out << "  \"data\": ";
-  append_json_double_array(out, result.samples);
-  out << ",\n";
-  if (result.secondary_samples.empty()) {
-    out << "  \"V2\": null,\n";
-  } else {
-    out << "  \"V2\": ";
-    append_json_double_array(out, result.secondary_samples);
-    out << ",\n";
-  }
-  out << "  \"t_crop\": ";
-  append_json_double_array(out, result.cropped_time);
-  out << ",\n";
-  out << "  \"data_cropped\": ";
-  append_json_double_array(out, result.cropped_samples);
-  out << ",\n";
-  out << "  \"fs\": " << json_number(result.sample_rate_hz) << ",\n";
-  out << "  \"tau_seed\": " << json_number(result.tau_seed) << ",\n";
-  out << "  \"tau_est\": " << json_number(result.tau_estimate) << ",\n";
-  out << "  \"tau_model\": " << json_number(result.tau_model) << ",\n";
-  append_tau_flags_json(out, result);
-  out << "  \"f_nls\": " << json_number(result.nls.frequency_hz) << ",\n";
-  out << "  \"f_dft\": " << json_number(result.dft.frequency_hz) << ",\n";
-  out << "  \"tau_nls\": " << optional_number(result.nls.tau) << ",\n";
-  out << "  \"tau_dft\": " << optional_number(result.dft.tau) << ",\n";
-  out << "  \"Q_pre_crop\": " << optional_number(result.Q_pre_crop) << ",\n";
-  append_q_nls_json_fields(out, result.nls_q);
-  append_q_dft_json_fields(out, result.dft_q);
-  append_profile_q_json_fields(out, result.profile_q);
-  out << "  \"nls_evaluations\": " << optional_size_t_json(result.nls.evaluations) << ",\n";
-  out << "  \"dft_evaluations\": " << optional_size_t_json(result.dft.evaluations) << ",\n";
-  out << "  \"nls_success\": " << (result.nls.success ? "true" : "false") << ",\n";
-  out << "  \"dft_success\": " << (result.dft.success ? "true" : "false") << ",\n";
-  out << "  \"nls_used_fallback\": " << (result.nls.used_fallback ? "true" : "false") << ",\n";
-  out << "  \"dft_used_fallback\": " << (result.dft.used_fallback ? "true" : "false") << ",\n";
-  out << "  \"nls_message\": " << json_string(result.nls.message) << ",\n";
-  out << "  \"dft_message\": " << json_string(result.dft.message) << ",\n";
-  out << "  \"A0_est\": " << json_number(result.noise.amplitude) << ",\n";
-  out << "  \"sigma_est\": " << json_number(result.noise.sigma) << ",\n";
-  out << "  \"sigma_mle_est\": " << json_number(result.noise.sigma_mle) << ",\n";
-  out << "  \"noise_dof\": " << result.noise.degrees_of_freedom << ",\n";
-  out << "  \"noise_estimation_success\": " << (result.noise.success ? "true" : "false") << ",\n";
-  out << "  \"noise_estimation_method\": " << json_string(result.noise.method) << ",\n";
-  out << "  \"noise_estimation_message\": " << json_string(result.noise.message) << ",\n";
-  out << "  \"plugin_crlb_var_f\": " << json_number(result.plugin_crlb_variance_f) << ",\n";
-  out << "  \"plugin_crlb_std_f\": " << json_number(result.plugin_crlb_std_f) << ",\n";
-  out << "  \"uncertainty_std_f\": " << json_number(result.plugin_crlb_std_f) << ",\n";
-  out << "  \"crlb_std_f\": " << json_number(result.plugin_crlb_std_f) << ",\n";
-  out << "  \"crlb_std_f_is_alias\": true,\n";
-  out << "  \"uncertainty_valid\": " << (result.uncertainty_valid ? "true" : "false") << ",\n";
-  out << "  \"N\": " << result.sample_count << ",\n";
-  out << "  \"N_crop\": " << result.cropped_sample_count << ",\n";
-  out << "  \"T\": " << json_number(result.observation_time) << ",\n";
-  out << "  \"T_crop\": " << json_number(result.cropped_observation_time) << ",\n";
   out << "  \"timings_ms\": ";
   append_json_timings_object(out, result.timings);
   out << "\n";

@@ -74,13 +74,12 @@ def _positive_plot_limits(*arrays) -> tuple[float, float]:
 
 
 def _result_series(report: dict, key: str, summary_key: str):
-    values = [r.get(key) for r in report.get("results_notebook") or [] if r.get(key) is not None]
-    if not values:
-        values = [
-            r.get(summary_key)
-            for r in report.get("summary_table") or []
-            if r.get(summary_key) is not None
-        ]
+    del key
+    values = [
+        r.get(summary_key)
+        for r in report.get("summary_table") or []
+        if r.get(summary_key) is not None
+    ]
     return _float_array(values)
 
 
@@ -128,7 +127,6 @@ def _save_report_plots(report: dict, output_dir: Path, label: str) -> list[Path]
         plt.close(fig)
         saved.append(path)
 
-    results = report.get("results_notebook") or []
     f_nls_all = _result_series(report, "f_nls", "f_NLS (Hz)")
     f_dft_all = _result_series(report, "f_dft", "f_DFT (Hz)")
     tau_all = _result_series(report, "tau_est", "tau_est (s)")
@@ -139,62 +137,6 @@ def _save_report_plots(report: dict, output_dir: Path, label: str) -> list[Path]
     q_stats = report.get("q_factor_statistics") or _finite_stats(q_factors)
     consistency = report.get("consistency_analysis") or {}
     crlb_analysis = report.get("crlb_comparison_analysis") or {}
-
-    if results:
-        n_plots = len(results)
-        fig, axes = plt.subplots(n_plots, 1, figsize=(14, 4 * n_plots), squeeze=False)
-        for ax, result in zip(axes[:, 0], results):
-            time = _float_array(result.get("t"))
-            samples = _float_array(result.get("data"))
-            cropped_time = _float_array(result.get("t_crop"))
-            cropped_samples = _float_array(result.get("data_cropped"))
-            step = max(1, len(time) // 50000)
-            step_crop = max(1, len(cropped_time) // 50000)
-
-            if time.size and samples.size:
-                ax.plot(time[::step], samples[::step], "b-", alpha=0.5, label="Original", linewidth=0.5)
-            if cropped_time.size and cropped_samples.size:
-                ax.plot(
-                    cropped_time[::step_crop],
-                    cropped_samples[::step_crop],
-                    "r-",
-                    alpha=0.7,
-                    label="Analyzed crop",
-                    linewidth=1,
-                )
-
-            t_crop = result.get("T_crop")
-            tau_est = result.get("tau_est")
-            if t_crop is not None:
-                ax.axvline(
-                    float(t_crop),
-                    color="r",
-                    linestyle="--",
-                    linewidth=2,
-                    label=f"T_crop = {float(t_crop):.2f} s",
-                )
-            if tau_est is not None:
-                tau_3x = 3.0 * float(tau_est)
-                ax.axvline(
-                    tau_3x,
-                    color="g",
-                    linestyle=":",
-                    linewidth=2,
-                    label=f"3x tau reference = {tau_3x:.2f} s",
-                )
-
-            ax.set_xlabel("Time (s)")
-            ax.set_ylabel("Phase (cycles)")
-            ax.set_title(
-                f"{Path(result.get('filename', '')).name}\n"
-                f"tau = {float(result.get('tau_est', float('nan'))):.2f} s, "
-                f"f_NLS = {float(result.get('f_nls', float('nan'))):.6f} Hz, "
-                f"f_DFT = {float(result.get('f_dft', float('nan'))):.6f} Hz"
-            )
-            ax.legend(loc="best")
-            ax.grid(True, alpha=0.3)
-        fig.suptitle(f"{label}: Time Series", y=1.0)
-        save(fig, "time_series.png")
 
     if f_nls_all.size and f_dft_all.size:
         count = min(f_nls_all.size, f_dft_all.size)
@@ -506,7 +448,7 @@ def main() -> None:
         "--plot-dir",
         type=Path,
         default=None,
-        help="Directory for reference-notebook-style plots for Python and C++ reports.",
+        help="Directory for summary plots for Python and C++ reports.",
     )
     args = p.parse_args()
 

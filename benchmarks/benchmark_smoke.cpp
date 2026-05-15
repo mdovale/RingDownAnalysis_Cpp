@@ -200,8 +200,8 @@ int main(int argc, char** argv) {
     const auto json = ringdown::to_json(process);
     (void)json;
   });
-  measure_void("batch_notebook_json_one_result", [&] {
-    const auto json = ringdown::to_json_notebook(analysis);
+  measure_void("analysis_json_one_result", [&] {
+    const auto json = ringdown::to_json(analysis);
     (void)json;
   });
 

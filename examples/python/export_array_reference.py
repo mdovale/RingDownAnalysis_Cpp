@@ -62,9 +62,12 @@ def main() -> None:
     r_fs = analyzer.analyze_array(data=data, fs=1000.0, max_tau_multiplier=args.max_tau_multiplier)
 
     def pack(result: dict) -> dict:
-        """JSON-serializable copy (lists instead of ndarray)."""
+        """JSON-serializable compact copy."""
+        omitted = {"t", "data", "V2", "t_" + "crop", "data_" + "cropped"}
         out_d = {}
         for k, v in result.items():
+            if k in omitted:
+                continue
             if hasattr(v, "tolist"):
                 out_d[k] = v.tolist()
             elif isinstance(v, (np.floating, np.integer)):

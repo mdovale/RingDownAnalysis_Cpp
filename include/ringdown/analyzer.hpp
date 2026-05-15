@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -186,28 +185,21 @@ struct LoadedData {
  * @brief File loader for supported ringdown data formats.
  *
  * The loader supports CSV, MAT v5, and ZIP archives containing exactly one CSV
- * file. Size limits are checked before parsing when a limit is supplied.
+ * file.
  */
 class RingDownDataLoader {
 public:
-  /// Default safety cap for file loading: 1 GiB.
-  static constexpr std::uintmax_t default_max_file_size_bytes = 1024ULL * 1024ULL * 1024ULL;
-
   /**
    * @brief Loads a supported file by extension.
    *
    * @param filepath Path to a `.csv`, `.mat`, or `.zip` file.
-   * @param max_file_size_bytes Optional maximum file size checked before
-   *        parsing.
    * @return Normalized loaded data.
    *
-   * @throws std::invalid_argument for unsupported formats, size-limit failures,
-   *         or invalid file structure.
+   * @throws std::invalid_argument for unsupported formats or invalid file
+   *         structure.
    * @throws std::runtime_error if the file cannot be opened.
    */
-  [[nodiscard]] static LoadedData load(
-      const std::string& filepath,
-      std::optional<std::uintmax_t> max_file_size_bytes = default_max_file_size_bytes);
+  [[nodiscard]] static LoadedData load(const std::string& filepath);
 
   /**
    * @brief Loads a Moku-style CSV file.
@@ -215,9 +207,7 @@ public:
    * CSV parsing uses the first column as time and the fourth column as the
    * primary sample channel. Header/comment rows are skipped before data begins.
    */
-  [[nodiscard]] static LoadedData load_csv(
-      const std::string& filepath,
-      std::optional<std::uintmax_t> max_file_size_bytes = default_max_file_size_bytes);
+  [[nodiscard]] static LoadedData load_csv(const std::string& filepath);
 
   /**
    * @brief Loads a little-endian MAT v5 file containing `moku.data`.
@@ -225,9 +215,7 @@ public:
    * The first column is interpreted as time, the fourth as primary phase data,
    * and the ninth as an optional secondary channel when present.
    */
-  [[nodiscard]] static LoadedData load_mat(
-      const std::string& filepath,
-      std::optional<std::uintmax_t> max_file_size_bytes = default_max_file_size_bytes);
+  [[nodiscard]] static LoadedData load_mat(const std::string& filepath);
 
   /**
    * @brief Loads a ZIP archive containing exactly one CSV entry.
@@ -235,9 +223,7 @@ public:
    * Stored and deflated CSV entries are supported. Encrypted, multi-file,
    * ZIP64, and unsupported-compression archives are rejected.
    */
-  [[nodiscard]] static LoadedData load_zip(
-      const std::string& filepath,
-      std::optional<std::uintmax_t> max_file_size_bytes = default_max_file_size_bytes);
+  [[nodiscard]] static LoadedData load_zip(const std::string& filepath);
 };
 
 /**
@@ -264,17 +250,14 @@ struct QSensitivityRow {
 class RingDownAnalyzer {
 public:
   /**
-   * @brief Constructs an analyzer with estimator objects and loader limits.
+   * @brief Constructs an analyzer with estimator objects.
    *
    * @param nls_estimator NLS estimator copied into the analyzer.
    * @param dft_estimator DFT estimator copied into the analyzer.
-   * @param max_file_size_bytes Optional safety cap used by `analyze_file`.
    * @param profile_q_estimator Profile-Q estimator copied into the analyzer.
    */
   RingDownAnalyzer(NLSFrequencyEstimator nls_estimator = NLSFrequencyEstimator{},
                    DFTFrequencyEstimator dft_estimator = DFTFrequencyEstimator{},
-                   std::optional<std::uintmax_t> max_file_size_bytes =
-                       RingDownDataLoader::default_max_file_size_bytes,
                    ProfileQEstimator profile_q_estimator = ProfileQEstimator{});
 
   /**
@@ -379,7 +362,6 @@ private:
   NLSFrequencyEstimator nls_estimator_;
   DFTFrequencyEstimator dft_estimator_;
   ProfileQEstimator profile_q_estimator_;
-  std::optional<std::uintmax_t> max_file_size_bytes_;
 };
 
 /**
@@ -388,14 +370,5 @@ private:
  * Non-finite numeric values and missing optionals are emitted as JSON `null`.
  */
 [[nodiscard]] std::string to_json(const AnalyzerResult& result);
-
-/**
- * @brief Serializes a notebook-oriented analysis result to JSON.
- *
- * The notebook export includes waveform arrays, cropped arrays, estimator
- * diagnostics, uncertainty aliases, and profile-Q arrays for downstream
- * plotting and Python comparison notebooks. Arrays may be large.
- */
-[[nodiscard]] std::string to_json_notebook(const AnalyzerResult& result);
 
 } // namespace ringdown

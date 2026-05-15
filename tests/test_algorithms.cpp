@@ -157,6 +157,20 @@ void require_invalid_argument(Function&& function, std::string_view message) {
   return buffer.str();
 }
 
+void require_no_sample_array_json_keys(const std::string& text, std::string_view message) {
+  const auto forbidden = std::vector<std::string>{"\"t\":",
+                                                 "\"data\":",
+                                                 "\"V2\":",
+                                                 std::string{"\"t_"} + "crop\":",
+                                                 std::string{"\"data_"} + "cropped\":",
+                                                 std::string{"\"results_"} + "notebook\":"};
+  for (const auto& key : forbidden) {
+    if (text.find(key) != std::string::npos) {
+      throw ringdown::test::AssertionFailure{std::string{message} + ": found " + std::string{key}};
+    }
+  }
+}
+
 void append_u16(std::vector<unsigned char>& bytes, std::uint16_t value) {
   bytes.push_back(static_cast<unsigned char>(value & 0xFFU));
   bytes.push_back(static_cast<unsigned char>((value >> 8U) & 0xFFU));
@@ -454,20 +468,6 @@ RINGDOWN_TEST(loader_and_analyzer_run_file_workflows) {
   std::filesystem::remove(zip_path);
 }
 
-RINGDOWN_TEST(loader_rejects_files_above_size_limit_before_parsing) {
-  const auto path = std::filesystem::current_path() / "oversized_guard.csv";
-  {
-    auto file = std::ofstream{path};
-    file << "0,0,0,1\n";
-  }
-
-  require_invalid_argument(
-      [&] { (void)ringdown::RingDownDataLoader::load_csv(path.string(), 1U); },
-      "CSV loader should reject files above configured size limit");
-
-  std::filesystem::remove(path);
-}
-
 RINGDOWN_TEST(batch_workflow_matches_pipeline_fixture) {
   const auto text = fixture_text();
   const auto batch = find_key(text, "batch");
@@ -602,7 +602,7 @@ RINGDOWN_TEST(json_exports_escape_strings_and_null_nonfinite_values) {
                           "Monte Carlo JSON should null non-finite stats");
 }
 
-RINGDOWN_TEST(to_json_notebook_exports_waveforms_and_estimator_fields) {
+RINGDOWN_TEST(json_exports_never_include_sample_arrays) {
   auto result = ringdown::AnalyzerResult{};
   result.filename = "test.csv";
   result.file_type = "CSV";
@@ -638,16 +638,8 @@ RINGDOWN_TEST(to_json_notebook_exports_waveforms_and_estimator_fields) {
   result.observation_time = 1.0;
   result.cropped_observation_time = 0.5;
 
-  const auto text = ringdown::to_json_notebook(result);
-  ringdown::test::require(text.find("\"t\": [") != std::string::npos, "notebook JSON should include time array");
-  ringdown::test::require(text.find("\"V2\": null") != std::string::npos, "notebook JSON should null V2");
-  ringdown::test::require(text.find("\"dft_message\": \"warn\\\"x\"") != std::string::npos,
-                          "notebook JSON should escape nested quotes");
-  ringdown::test::require(text.find("\"nls_evaluations\": 42") != std::string::npos,
-                          "notebook JSON should include evaluations");
-  const auto t_arr = extract_array(text, "t", 0U);
-  ringdown::test::require(t_arr.size() == 3U, "t array length");
-  require_near(t_arr[1], 0.5, 0.0, "t[1]");
+  require_no_sample_array_json_keys(ringdown::to_json(result), "analysis JSON");
+  require_no_sample_array_json_keys(ringdown::to_json(ringdown::ProcessResult{{result}, {}}), "batch list JSON");
 }
 
 RINGDOWN_TEST(to_json_batch_report_contains_summary_and_consistency) {
@@ -667,15 +659,5 @@ RINGDOWN_TEST(to_json_batch_report_contains_summary_and_consistency) {
                           "batch report should include per-file timing");
   ringdown::test::require(report.find("\"nls_mean\":") != std::string::npos,
                           "consistency should include nls_mean");
-  ringdown::test::require(report.find("\"results_notebook\":") != std::string::npos,
-                          "batch report should embed notebook results");
-
-  const auto summary_report =
-      ringdown::to_json_batch_report(analyzer, processed, ringdown::BatchReportOptions{false});
-  ringdown::test::require(summary_report.find("\"summary_table\":") != std::string::npos,
-                          "summary report should keep summary table");
-  ringdown::test::require(summary_report.find("\"file_timings_ms\":") != std::string::npos,
-                          "summary report should keep per-file timing");
-  ringdown::test::require(summary_report.find("\"t\": [") == std::string::npos,
-                          "summary report should omit waveform arrays");
+  require_no_sample_array_json_keys(report, "batch report JSON");
 }

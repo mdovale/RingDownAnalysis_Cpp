@@ -100,7 +100,6 @@ def main() -> None:
         "failures": [
             {"filepath": fp, "message": str(exc)} for fp, exc in pr.failed_files
         ],
-        "results_notebook": [to_jsonable(r) for r in pr.results],
         "q_factors": [float(x) for x in q_factors],
         "q_factor_statistics": to_jsonable(q_stats),
         "summary_table": to_jsonable(summary.get("data", [])),

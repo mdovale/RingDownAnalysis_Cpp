@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
-#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -26,10 +25,9 @@ public:
 void print_usage(std::ostream& out) {
   out << "RingDownAnalysisCpp " << ringdown::version() << '\n'
       << "Usage:\n"
-      << "  ringdown analyze [--json] [--max-file-size-gb <n>|--no-file-size-limit] "
-         "<file.csv|file.mat|file.zip>\n"
+      << "  ringdown analyze [--json] <file.csv|file.mat|file.zip>\n"
       << "  ringdown batch [--json] [--workers <n>] [--progress] [--fail-on-error]\n"
-      << "                 [--report minimal|full] [--notebook-report]\n"
+      << "                 [--report minimal|full]\n"
       << "                 [--file-list <paths.txt>] <path|directory|@paths.txt>...\n"
       << "  ringdown monte-carlo [--trials <n>] [--samples <n>] [--workers <n>]\n"
       << "                       [--seed <n>] [--frequency-hz <hz>] [--sample-rate-hz <hz>]\n"
@@ -97,14 +95,6 @@ void print_usage(std::ostream& out) {
     throw CliUsageError{"invalid finite number for " + std::string{option} + ": " + std::string{text}};
   }
   return value;
-}
-
-[[nodiscard]] std::optional<std::uintmax_t> parse_max_file_size_gb(std::string_view text) {
-  const auto gib = parse_double(text, "--max-file-size-gb");
-  if (gib < 0.0) {
-    throw CliUsageError{"--max-file-size-gb must be non-negative"};
-  }
-  return static_cast<std::uintmax_t>(gib * static_cast<double>(1024ULL * 1024ULL * 1024ULL));
 }
 
 [[nodiscard]] std::string lower_ascii(std::string value) {
@@ -193,8 +183,6 @@ void add_input_path(std::vector<std::string>& files, const std::filesystem::path
 
 [[nodiscard]] int run_analyze(int argc, char** argv) {
   auto file = std::optional<std::string>{};
-  auto max_file_size_bytes =
-      std::optional<std::uintmax_t>{ringdown::RingDownDataLoader::default_max_file_size_bytes};
 
   for (auto index = 2; index < argc; ++index) {
     const auto arg = std::string_view{argv[index]};
@@ -204,14 +192,6 @@ void add_input_path(std::vector<std::string>& files, const std::filesystem::path
       return 0;
     }
     if (arg == "--json") {
-      continue;
-    }
-    if (consume_option_value(arg, "--max-file-size-gb", argc, argv, index, value)) {
-      max_file_size_bytes = parse_max_file_size_gb(value);
-      continue;
-    }
-    if (arg == "--no-file-size-limit") {
-      max_file_size_bytes = std::nullopt;
       continue;
     }
     if (starts_with(arg, "-")) {
@@ -227,8 +207,7 @@ void add_input_path(std::vector<std::string>& files, const std::filesystem::path
     throw CliUsageError{"analyze requires an input file"};
   }
 
-  const auto analyzer = ringdown::RingDownAnalyzer{
-      ringdown::NLSFrequencyEstimator{}, ringdown::DFTFrequencyEstimator{}, max_file_size_bytes};
+  const auto analyzer = ringdown::RingDownAnalyzer{};
   std::cout << ringdown::to_json(analyzer.analyze_file(*file));
   return 0;
 }
@@ -237,11 +216,8 @@ void add_input_path(std::vector<std::string>& files, const std::filesystem::path
   auto files = std::vector<std::string>{};
   auto process_options = ringdown::BatchProcessOptions{};
   auto export_options = ringdown::BatchExportOptions{};
-  export_options.report.include_notebook_results = false;
   auto fail_on_error = false;
   auto progress_enabled = false;
-  auto max_file_size_bytes =
-      std::optional<std::uintmax_t>{ringdown::RingDownDataLoader::default_max_file_size_bytes};
 
   for (auto index = 2; index < argc; ++index) {
     const auto arg = std::string_view{argv[index]};
@@ -275,21 +251,8 @@ void add_input_path(std::vector<std::string>& files, const std::filesystem::path
       }
       continue;
     }
-    if (arg == "--notebook-report") {
-      export_options.mode = ringdown::BatchExportMode::full;
-      export_options.report.include_notebook_results = true;
-      continue;
-    }
     if (consume_option_value(arg, "--file-list", argc, argv, index, value)) {
       add_file_list(files, value);
-      continue;
-    }
-    if (consume_option_value(arg, "--max-file-size-gb", argc, argv, index, value)) {
-      max_file_size_bytes = parse_max_file_size_gb(value);
-      continue;
-    }
-    if (arg == "--no-file-size-limit") {
-      max_file_size_bytes = std::nullopt;
       continue;
     }
     if (starts_with(arg, "-")) {
@@ -303,8 +266,7 @@ void add_input_path(std::vector<std::string>& files, const std::filesystem::path
   }
 
   process_options.progress = make_progress_callback(progress_enabled);
-  auto analyzer = ringdown::BatchRingDownAnalyzer{ringdown::RingDownAnalyzer{
-      ringdown::NLSFrequencyEstimator{}, ringdown::DFTFrequencyEstimator{}, max_file_size_bytes}};
+  auto analyzer = ringdown::BatchRingDownAnalyzer{};
   const auto result = analyzer.process_files(files, process_options);
   std::cout << ringdown::to_json_batch_export(analyzer, result, export_options);
   if (result.has_failures()) {
