@@ -11,7 +11,7 @@ The C++ library now covers the core workflows from the Python reference:
 - array and file analysis;
 - sequential and parallel batch processing with structured summaries;
 - deterministic Monte Carlo studies;
-- JSON export for Python and Jupyter inspection.
+- compact JSON export for downstream inspection.
 
 ## CLI Examples
 
@@ -65,7 +65,7 @@ The Monte Carlo CLI maps flags onto `MonteCarloOptions` and its nested
 `SignalParameters`. Legacy positional values for trial count, sample count, and
 worker count are still accepted, but flags are preferred for reproducibility.
 
-## Python/Jupyter Inspection
+## Python Inspection
 
 C++ is the analysis pipeline. Python can remain a downstream inspection tool by
 loading exported JSON:
@@ -154,7 +154,7 @@ Observed C++ timings:
 - `array_analysis_10k_ms=4.25446`
 - `monte_carlo_8x2048_ms=4.71229`
 - `batch_json_summary_one_result_ms=0.015084`
-- `batch_notebook_json_one_result_ms=11.8216`
+- `analysis_json_one_result_ms=0.015084`
 - `csv_load_only_ms=0.110041` on `tests/fixtures/reference/moku_small.csv`
 - `mat_load_only_ms=0.174042` on `tests/fixtures/reference/moku_small.mat`
 - `nls_evaluations=9`

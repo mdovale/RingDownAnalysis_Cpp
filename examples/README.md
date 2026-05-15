@@ -1,6 +1,6 @@
-# Examples: notebook parity
+# Examples: parity workflows
 
-These examples mirror the workflows in the Python reference notebooks:
+These examples mirror the array and batch workflows from the Python reference:
 
 - `array_analysis_example.ipynb` → C++ `array_analysis_example`, Python `export_array_reference.py`
 - `batch_analysis_example.ipynb` → C++ `batch_analysis_example`, Python `export_batch_reference.py`
@@ -30,25 +30,13 @@ cmake --build --preset dev
      --output-dir results/examples/array_analysis_cpp
    ```
 
-3. Compare JSON outputs (exact waveform match with zero tolerances when using the shared CSV):
+3. Compare JSON outputs:
 
    ```bash
    python examples/python/compare_array_analysis.py \
      --py-json results/examples/array_analysis_py/from_t_and_data.json \
-     --cpp-json results/examples/array_analysis_cpp/from_t_and_data.json \
-     --waveform-rtol 0 \
-     --waveform-atol 0
+     --cpp-json results/examples/array_analysis_cpp/from_t_and_data.json
    ```
-
-Optional overlay plot:
-
-```bash
-python examples/python/compare_array_analysis.py \
-  --py-json results/examples/array_analysis_py/from_t_and_data.json \
-  --cpp-json results/examples/array_analysis_cpp/from_t_and_data.json \
-  --waveform-rtol 0 --waveform-atol 0 \
-  --plot results/examples/array_analysis_cpp/array_overlay.png
-```
 
 Jupyter: open [`array_analysis_cpp_comparison.ipynb`](array_analysis_cpp_comparison.ipynb) and run the cells (expects `build/dev/examples/` and repo-root paths).
 
@@ -60,7 +48,7 @@ For a **quick smoke** on the small tracked CSV fixture (milliseconds):
 build/dev/examples/batch_analysis_example --data-dir tests/fixtures/reference
 ```
 
-Full notebook-style workflow on reference measurement data (defaults to `../RingDownAnalysis/data`; can be slow for large captures):
+Full workflow on reference measurement data (defaults to `../RingDownAnalysis/data`; can be slow for large captures):
 
 1. Python reference batch report (defaults to `../RingDownAnalysis/data`):
 

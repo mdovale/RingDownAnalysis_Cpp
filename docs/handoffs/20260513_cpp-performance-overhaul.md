@@ -140,25 +140,22 @@ Relevant files/functions:
 - `../RingDownAnalysis/ringdownanalysis/analyzer.py`:
   `_run_analysis_pipeline()`, `estimate_tau()`, `estimate_noise_parameters()`.
 
-### 3. C++ Keeps Large Waveform Copies In Results And JSON Paths
+### 3. C++ Keeps Large Sample Copies In Results
 
 `AnalyzerResult` owns full `time`, `samples`, `cropped_time`, `cropped_samples`,
 and optional secondary samples. Batch processing stores a vector of these
-results, then `to_json_batch_report()` serializes notebook-shaped per-file
-results through `to_json_notebook()` and re-parses each JSON chunk line-by-line
-with `std::istringstream`.
+results, so real-file batches can carry large sample buffers even when exported
+JSON is compact.
 
 For real CSV files with millions of samples, this can dominate memory pressure
-and reporting time even after estimator improvements. The Python notebook path
-also carries arrays, but C++ should expose a fast summary path that does not
-retain or serialize raw waveforms unless explicitly requested.
+even after estimator improvements. C++ exports should stay compact and avoid
+serializing sample arrays.
 
 Relevant files/functions:
 
 - `include/ringdown/analyzer.hpp`: `AnalyzerResult`.
 - `src/batch.cpp`: `BatchRingDownAnalyzer::process_files()`,
   `to_json_batch_report()`, `to_json()`.
-- `src/analyzer.cpp`: `to_json_notebook()`.
 
 ### 4. CSV/MAT Loading Is Correct But Not Optimized For Large Files
 
@@ -222,8 +219,8 @@ Add focused benchmark/profiling coverage before changing algorithms:
    - noise fit,
    - CSV load only,
    - MAT load only,
-   - batch JSON summary without waveform arrays,
-   - batch notebook JSON with waveform arrays.
+   - batch JSON summary,
+   - compact analysis JSON.
 2. Populate `EstimationResult::evaluations` for NLS and tau fits.
 3. Add temporary or gated per-file progress/timing in batch examples so stalls
    show the active file and stage.
@@ -278,9 +275,8 @@ After NLS is fixed, reduce repeated scans/copies:
 1. Introduce lightweight array views/spans for internal analysis stages so
    cropping can pass a range instead of allocating `cropped_time` and
    `cropped_samples` for every fit.
-2. Add a summary-only analyzer/batch result path that omits raw waveform arrays.
-3. Make notebook-shaped JSON opt-in for examples, not the default batch
-   production path.
+2. Keep analyzer and batch JSON exports compact.
+3. Keep examples on the same compact JSON contract as production paths.
 4. Avoid recomputing `estimate_initial_tau_from_envelope()` in
    `RingDownAnalyzer::estimate_tau()` fallback paths.
 5. Consider combining normal-equation accumulation and RSS computation where it
@@ -289,7 +285,7 @@ After NLS is fixed, reduce repeated scans/copies:
 Acceptance for this phase:
 
 - Real-file batch summary memory use scales with result count, not total raw
-  sample count, unless waveform export is explicitly requested.
+  sample count.
 - Batch JSON summary time is negligible relative to analysis for small result
   counts.
 
@@ -348,7 +344,7 @@ Performance:
 
 - Release C++ `nls_estimate_10k` beats Python on the same machine.
 - Release C++ `array_analysis_10k` beats Python on the same machine.
-- Release C++ real-file batch with `--max-files 3` completes in notebook-friendly
+- Release C++ real-file batch with `--max-files 3` completes in interactive
   time and no longer appears stalled.
 - Full batch throughput scales with workers after the per-file bottleneck is
   fixed.

@@ -18,11 +18,11 @@ It does **not** prescribe a specific third-party argument parser; choose one con
 1. **Batch “one workflow, two exports”**  
    Document and formalize the split between:
    - **minimal**: `ProcessResult` serialized via `to_json(const ProcessResult&)` (per-file successes + failures, small / fast), and  
-   - **full report**: `to_json_batch_report(BatchRingDownAnalyzer&, const ProcessResult&, BatchReportOptions)` (summaries, Q stats, consistency, CRLB comparison, optional notebook-shaped payloads).
-   Consider a single discoverable type or enum (e.g. extend `BatchReportOptions` or add `BatchExportOptions`) so callers do not have to infer two parallel paths from reading two different programs.
+   - **full report**: `to_json_batch_report(BatchRingDownAnalyzer&, const ProcessResult&)` (summaries, Q stats, consistency, CRLB comparison).
+   Consider a single discoverable type or enum (e.g. `BatchExportOptions`) so callers do not have to infer two parallel paths from reading two different programs.
 
 2. **`BatchProcessOptions` (or equivalent)**  
-   Colocate **worker count** and **optional progress callback** with `process_files` at the API level, and make the relationship to loader / analyzer **file size limits** explicit. Today the limit is configured through `RingDownAnalyzer` / `RingDownDataLoader`, while `process_files` takes only filepaths, worker count, and progress. Defaults must stay backward compatible with current `process_files(..., worker_count = 1, ...)`.
+   Colocate **worker count** and **optional progress callback** with `process_files` at the API level. Defaults must stay backward compatible with current `process_files(..., worker_count = 1, ...)`.
 
 3. **Monte Carlo**  
    Treat `MonteCarloOptions` as the **single** configuration object for studies (`signal`, `trial_count`, `seed`, `worker_count`). Any user-facing runner should map argv or a small config file onto that struct; avoid hard-coding only `trials` / `samples` / `workers` while leaving `frequency_hz`, `snr_db`, `seed`, etc. inaccessible.
@@ -67,7 +67,7 @@ It does **not** prescribe a specific third-party argument parser; choose one con
 
 - Umbrella: `include/ringdown/ringdown.hpp`
 - Analysis / load: `include/ringdown/analyzer.hpp` (`RingDownDataLoader`, `RingDownAnalyzer`, `analyze_file`)
-- Batch: `include/ringdown/batch.hpp` (`BatchRingDownAnalyzer::process_files`, `ProcessResult`, `to_json`, `to_json_batch_report`, `BatchReportOptions`)
+- Batch: `include/ringdown/batch.hpp` (`BatchRingDownAnalyzer::process_files`, `ProcessResult`, `to_json`, `to_json_batch_report`, `BatchExportOptions`)
 - Monte Carlo: `include/ringdown/monte_carlo.hpp` (`MonteCarloOptions`, `MonteCarloAnalyzer`, `MonteCarloResult`, `to_json`)
 - Signal defaults: `include/ringdown/signal.hpp` (`SignalParameters`)
 
@@ -102,7 +102,7 @@ It does **not** prescribe a specific third-party argument parser; choose one con
 **Library**
 
 - [x] Batch workflow documented (or encoded in types) as **minimal vs full** export; new readers can choose without reading two binaries.
-- [x] Optional `BatchProcessOptions` (or documented pattern) groups workers and progress for `process_files`, while documenting how analyzer / loader file size limits are configured.
+- [x] Optional `BatchProcessOptions` (or documented pattern) groups workers and progress for `process_files`.
 - [x] `MonteCarloOptions` is the documented configuration surface for Monte Carlo; tests cover any new parsing path.
 
 **CLI / product**
@@ -131,7 +131,7 @@ It does **not** prescribe a specific third-party argument parser; choose one con
 ## Recommended next steps
 
 1. **Decision record** (short paragraph in README or `docs/RESULTS_AND_PERFORMANCE.md`): `ringdown` is the primary user-facing binary; document any temporary `ringdown_cli` compatibility path and avoid permanent dual-product confusion.
-2. **API sketch** in code or doc: `BatchExportMode` / extended `BatchReportOptions` / `BatchProcessOptions`—implement smallest additive change first.
+2. **API sketch** in code or doc: `BatchExportMode` / `BatchExportOptions` / `BatchProcessOptions`—implement smallest additive change first.
 3. **Extend the `ringdown batch` path** for `.zip` directory listing and shared flags; prefer one code path calling `process_files` + chosen JSON export.
 4. **Monte Carlo CLI**: map flags to `MonteCarloOptions` and `SignalParameters`; add tests for argv parsing.
 5. **Follow-up**: deprecate redundant entry points only after migration period and doc update.
@@ -147,6 +147,6 @@ It does **not** prescribe a specific third-party argument parser; choose one con
 
 - `AGENTS.md` — operating model and Python reference paths.
 - `docs/RESULTS_AND_PERFORMANCE.md` — CLI examples and downstream Python inspection.
-- Prior related handoffs (batch performance / notebook JSON): `docs/handoffs/20260513_cpp-batch-notebook-performance.md`, `docs/handoffs/20260513_batch-analysis-cpp-slow.md` (context only; this handoff is API/UX scope).
+- Prior related handoffs (batch performance): `docs/handoffs/20260513_cpp-batch-notebook-performance.md`, `docs/handoffs/20260513_batch-analysis-cpp-slow.md` (context only; this handoff is API/UX scope).
 
 No external forum links were used for this handoff.

@@ -24,7 +24,7 @@ build/dev/examples/batch_analysis_example --max-files 3
   --plot results/examples/batch_analysis_cpp/f_nls_overlay.png
 ```
 
-Expected: the C++ example should complete in a reasonable notebook-friendly
+Expected: the C++ example should complete in a reasonable interactive
 time for `--max-files 3`, then the comparison should run.
 
 Actual: Python prints `Wrote Python batch reference under
@@ -128,7 +128,7 @@ Constraints and repo rules:
 ## Success Criteria
 
 - `build/dev/examples/batch_analysis_example --max-files 3` completes in a
-  notebook-friendly time on the three CSV fixtures.
+  interactive time on the three CSV fixtures.
 - The full batch notebook sequence completes using `.venv/bin/python`.
 - `examples/python/compare_batch_analysis.py` reports batch fields match within
   tolerances and writes the optional overlay plot.

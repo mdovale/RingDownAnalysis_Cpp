@@ -25,7 +25,7 @@ notebook output shows:
   `Warning: Debug build timings are not production performance data.`
 
 That means the current example is still measuring a Debug binary and the
-real-file C++ path is not giving notebook-friendly feedback or runtime. The goal
+real-file C++ path is not giving usable feedback or runtime. The goal
 is to make the C++ example decisively faster than Python on the same full data
 selection, using Release binaries and preserving parity.
 
@@ -64,14 +64,10 @@ The release smoke benchmark is now fast on synthetic data:
 - `array_analysis_10k_ms` is about `4 ms`.
 - The benchmark reports stage-level timings and evaluation counts.
 
-The notebook path is still not fixed:
+The real-file batch path still needs validation:
 
-- `examples/batch_analysis_cpp_comparison.ipynb` still invokes
-  `build/dev/examples/batch_analysis_example`.
 - The workflow now processes all top-level CSV/MAT files rather than a small
   `--max-files` subset.
-- The C++ batch example still writes the full notebook-shaped
-  `batch_report.json`, including raw waveform arrays for every result.
 - No real-file Release profiling evidence has been captured after the NLS
   optimizer change.
 
@@ -81,7 +77,7 @@ The notebook path is still not fixed:
 
 The core estimator was rewritten from alternating scalar golden searches to an
 analytic bounded nonlinear least-squares fit. This fixed the synthetic NLS and
-array-analysis gap, but it does not prove the real batch notebook path is fast.
+array-analysis gap, but it does not prove the real batch path is fast.
 
 ### Stage-Level Smoke Benchmark
 
@@ -94,7 +90,7 @@ the large real files used by the notebook.
 
 `BatchRingDownAnalyzer::process_files` accepts an optional progress callback,
 and `examples/batch_analysis_example.cpp` exposes it with `--progress` or
-`RINGDOWN_BATCH_PROGRESS`. The notebook does not use `--progress` yet.
+`RINGDOWN_BATCH_PROGRESS`.
 
 ### Comparison Plot Expansion
 
@@ -106,8 +102,6 @@ throughput.
 
 Relevant files:
 
-- `examples/batch_analysis_cpp_comparison.ipynb`: notebook workflow; currently
-  runs the Debug C++ binary.
 - `examples/batch_analysis_example.cpp`: C++ batch example; writes
   `batch_report.json`, `file_list.json`, and `meta.json`.
 - `include/ringdown/batch.hpp` and `src/batch.cpp`: batch processing and
@@ -120,14 +114,10 @@ Relevant files:
   generation.
 - `docs/RESULTS_AND_PERFORMANCE.md`: current synthetic performance snapshot.
 
-Likely performance suspects for the real batch notebook:
+Likely performance suspects for the real batch path:
 
-- The notebook is using `build/dev`, invalidating performance conclusions.
 - Full `AnalyzerResult` retains raw `time`, `samples`, `cropped_time`,
   `cropped_samples`, and optional `secondary_samples` for every file.
-- `to_json_batch_report()` embeds `results_notebook` for every file and formats
-  all waveform arrays, which can dominate runtime and memory for multi-million
-  sample files.
 - CSV/MAT loading has only fixture-scale benchmark coverage after the latest
   changes; large-file loader time is unknown.
 - The C++ example may process both large CSV and MAT files while the Python
@@ -142,8 +132,7 @@ Constraints:
 - Do not hide an algorithmic or serialization bottleneck behind parallelism
   alone.
 - Use Release binaries for performance claims.
-- Keep notebook output useful for humans; if full waveform export is slow, make
-  it opt-in rather than silently removing it from parity workflows.
+- Keep exported JSON compact and useful for downstream inspection.
 
 ## Repro / Measurement Plan
 
@@ -205,19 +194,17 @@ Extend the batch example or analyzer with gated timing for:
 - noise fit;
 - result retention;
 - summary JSON;
-- notebook JSON / waveform serialization.
+- JSON report serialization.
 
 The output should make it obvious whether the bottleneck is analysis, loader,
 or reporting.
 
-### Phase 3: Add A Summary-Only Batch Path
+### Phase 3: Keep Batch JSON Compact
 
-Make the production/default C++ batch output avoid raw waveform arrays unless
-requested. Options:
+Make the production/default C++ batch output compact. Options:
 
-- Add a `--notebook-report` flag for full `results_notebook` output.
 - Keep `file_list.json` / summary rows as the default fast path.
-- Write waveform-heavy notebook JSON only for small samples or explicit opt-in.
+- Keep detailed diagnostics in scalar summary fields.
 
 Success here should make memory and serialization time scale with file count,
 not total sample count, for the default batch example.
@@ -234,9 +221,9 @@ Use the telemetry to decide whether to optimize:
 
 Do this only after the timings show which path dominates.
 
-### Phase 5: Re-run Full Notebook Parity
+### Phase 5: Re-run Full Batch Parity
 
-Run the full notebook-equivalent workflow with Release C++ and compare:
+Run the full equivalent workflow with Release C++ and compare:
 
 - wall time Python vs C++;
 - per-file C++ timings;
@@ -246,27 +233,20 @@ Run the full notebook-equivalent workflow with Release C++ and compare:
 
 ## Success Criteria
 
-- `examples/batch_analysis_cpp_comparison.ipynb` no longer measures
-  `build/dev` for C++ performance.
-- Release C++ completes the full notebook batch selection faster than Python on
+- Release C++ completes the full batch selection faster than Python on
   the same machine and same file set.
 - `--max-files 1` and the full selection both print enough C++ progress/stage
   timing to identify regressions.
-- Default C++ batch output is notebook-friendly in wall time and memory use.
-- Full waveform notebook JSON remains available when explicitly requested.
+- Default C++ batch output is fast in wall time and memory use.
 - Existing CTest fixture parity passes.
 - `examples/python/compare_batch_analysis.py` still reports parity within
   tolerances for the generated reports.
 
 ## Test Coverage Gaps
 
-- No automated regression test currently asserts that the notebook uses a
-  Release C++ binary for performance comparisons.
 - No benchmark currently times load/analyze/report stages on the large real
   CSV/MAT files.
-- No test covers a summary-only batch report mode because that mode does not
-  exist yet.
-- No memory-use regression guard exists for retaining raw waveforms across a
+- No memory-use regression guard exists for retaining raw samples across a
   batch.
 
 ## Branch / Workspace Notes
